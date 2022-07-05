@@ -1,11 +1,12 @@
-use std::{collections::VecDeque, fmt::Display, task::Poll, time::Duration};
+use std::{collections::VecDeque, fmt::Display, task::Poll, time::Duration, pin::Pin};
 
-use futures::{future::BoxFuture, FutureExt};
+use futures::{future::BoxFuture, FutureExt, Future};
+use tokio::time::{sleep, Sleep};
 use libp2p::{
     core::{upgrade::NegotiationError, UpgradeError},
     swarm::{
         ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, NegotiatedSubstream,
-        SubstreamProtocol,
+        SubstreamProtocol, handler::{OutboundUpgradeSend, InboundUpgradeSend},
     },
 };
 
@@ -19,7 +20,7 @@ enum State {
 }
 
 #[derive(Debug)]
-enum ConnectionError {
+pub enum ConnectionError {
     Timeout,
     PeerUnsupported,
     Other(Box<dyn std::error::Error + Send + 'static>),
@@ -36,7 +37,7 @@ impl Display for ConnectionError {
 }
 
 #[derive(Debug)]
-enum ConnectionSuccess {
+pub enum ConnectionSuccess {
     MessageReceived(Message),
 }
 
@@ -112,7 +113,6 @@ impl Connection {
         Ok(match msg {
             Message::Single(_) => (stream, None),
             Message::Pair(_) => {
-                // TODO: add some timeout I guess
                 let (s, m) =
                     SwarmComputerProtocol::receive_message::<NegotiatedSubstream, Message>(stream)
                         .await?;
@@ -126,7 +126,7 @@ enum OutgoingState<S> {
     // Waiting for requests to send
     Idle(S),
     // Initiated sending request (optionally, get response) in stored future
-    Active(BoxFuture<'static, Result<(S, Option<Message>), ProtocolError>>),
+    Active{out_handler: BoxFuture<'static, Result<(S, Option<Message>), ProtocolError>>, timer: Pin<Box<Sleep>>},
     /// New substream is being instantiated
     Negotiating,
 }
@@ -154,7 +154,7 @@ impl ConnectionHandler for Connection {
 
     fn inject_fully_negotiated_inbound(
         &mut self,
-        protocol: <Self::InboundProtocol as libp2p::swarm::handler::InboundUpgradeSend>::Output,
+        protocol: <Self::InboundProtocol as InboundUpgradeSend>::Output,
         _info: Self::InboundOpenInfo,
     ) {
         self.incoming = Some(Self::InboundProtocol::receive_message(protocol).boxed());
@@ -162,7 +162,7 @@ impl ConnectionHandler for Connection {
 
     fn inject_fully_negotiated_outbound(
         &mut self,
-        protocol: <Self::OutboundProtocol as libp2p::swarm::handler::OutboundUpgradeSend>::Output,
+        protocol: <Self::OutboundProtocol as OutboundUpgradeSend>::Output,
         _info: Self::OutboundOpenInfo,
     ) {
         self.outgoing = Some(OutgoingState::Idle(protocol));
@@ -180,7 +180,7 @@ impl ConnectionHandler for Connection {
         &mut self,
         _info: Self::OutboundOpenInfo,
         error: ConnectionHandlerUpgrErr<
-            <Self::OutboundProtocol as libp2p::swarm::handler::OutboundUpgradeSend>::Error,
+            <Self::OutboundProtocol as OutboundUpgradeSend>::Error,
         >,
     ) {
         self.outgoing = None;
@@ -206,7 +206,7 @@ impl ConnectionHandler for Connection {
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<
+    ) -> Poll<
         libp2p::swarm::ConnectionHandlerEvent<
             Self::OutboundProtocol,
             Self::OutboundOpenInfo,
@@ -218,7 +218,7 @@ impl ConnectionHandler for Connection {
             State::PeerUnsupported {
                 event_emitted: true,
             } => {
-                return Poll::Pending; // nothing to do on this connection
+                return Poll::Pending;
             }
             State::PeerUnsupported {
                 event_emitted: false,
@@ -252,9 +252,9 @@ impl ConnectionHandler for Connection {
         }
 
         loop {
-            // Check for outgoing ping failures.
+            // Check for outgoing failures
             if let Some(error) = self.error_queue.pop_back() {
-                // log::debug!("Ping failure: {:?}", error);
+                // log::debug!("Out failure: {:?}", error);
                 self.errors_in_row += 1;
                 if self.errors_in_row >= self.max_errors {
                     // log::debug!("Too many failures ({}). Closing connection.", self.errors_in_row);
@@ -264,11 +264,17 @@ impl ConnectionHandler for Connection {
                 }
             }
 
-            // Continue outgoing pings.
+            // Continue outgoing messages.
             match self.outgoing.take() {
-                Some(OutgoingState::Active(mut fut)) => match fut.poll_unpin(cx) {
+                Some(OutgoingState::Active{out_handler: mut fut, mut timer}) => match fut.poll_unpin(cx) {
                     Poll::Pending => {
-                        // TODO: timeout on no response?
+                        match timer.as_mut().poll(cx) {
+                            Poll::Ready(_) => self.error_queue.push_front(ConnectionError::Timeout),
+                            Poll::Pending => {
+                                self.outgoing = Some(OutgoingState::Active{out_handler: fut, timer});
+                                break;
+                            },
+                        }
                     }
                     Poll::Ready(Ok((stream, response))) => {
                         self.errors_in_row = 0;
@@ -286,14 +292,16 @@ impl ConnectionHandler for Connection {
                 },
                 Some(OutgoingState::Idle(stream)) => match self.outgoing_message_queue.pop_back() {
                     Some(m) => {
-                        self.outgoing = Some(OutgoingState::Active(
-                            Self::handle_outgoing_message(stream, m).boxed(),
-                        ));
+                        let timer = Box::pin(sleep(self.timeout));
+                        self.outgoing = Some(OutgoingState::Active{
+                            out_handler: Self::handle_outgoing_message(stream, m).boxed(),
+                            timer,
+                        });
                     }
                     None => {
                         self.outgoing = Some(OutgoingState::Idle(stream));
                         break;
-                    },
+                    }
                 },
                 Some(OutgoingState::Negotiating) => {
                     self.outgoing = Some(OutgoingState::Negotiating);
@@ -301,19 +309,13 @@ impl ConnectionHandler for Connection {
                 }
                 None => {
                     self.outgoing = Some(OutgoingState::Negotiating);
-                    let protocol = self.listen_protocol()
-                        .with_timeout(self.timeout);
+                    let protocol = self.listen_protocol().with_timeout(self.timeout);
                     return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest {
                         protocol,
                     });
                 }
             }
         }
-
         Poll::Pending
-        // handle `incoming`
-        // handle `outgoing`
-        // handle messages from queue
-        // handle other stuff
     }
 }
