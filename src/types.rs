@@ -1,14 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-pub struct Operand {}
-
-pub enum Instruction {
-    And(Operand, Operand),
-    Or(Operand, Operand),
-    Xor(Operand, Operand),
-    Not(Operand),
-}
-
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Vid(pub u64);
 

@@ -5,7 +5,8 @@ use std::error::Error;
 
 mod behaviour;
 mod consensus;
-mod data_storage;
+mod data_memory;
+mod instruction_memory;
 mod handler;
 mod processor;
 mod protocol;
