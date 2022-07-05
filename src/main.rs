@@ -14,6 +14,12 @@ mod types;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let format = tracing_subscriber::fmt::format()
+        .pretty();
+    tracing_subscriber::fmt()
+        .event_format(format)
+        .init();
+
     let local_key = identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(local_key.public());
     println!("Local peer id: {:?}", local_peer_id);

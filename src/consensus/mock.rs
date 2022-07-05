@@ -12,7 +12,7 @@ impl GraphConsensus for MockConsensus {
     type Transaction = Transaction<i32>;
     type Graph = ();
 
-    fn update_graph(&mut self, new_graph: Self::Graph) -> Result<(), Self::Error> {
+    fn update_graph(&mut self, _new_graph: Self::Graph) -> Result<(), Self::Error> {
         Ok(())
     }
 
