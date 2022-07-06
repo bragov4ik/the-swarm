@@ -11,6 +11,7 @@ mod handler;
 mod processor;
 mod protocol;
 mod types;
+mod utils;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

@@ -15,7 +15,7 @@ impl InstructionMemory for MockInstructionMemory<I> {
         self.inner.pop_back()
     }
 
-    fn put_instruction(&mut self, instruction: Self::Instruction) -> Result<(), Self::Error> {
+    fn push_instruction(&mut self, instruction: Self::Instruction) -> Result<(), Self::Error> {
         self.inner.push_front(instruction);
         Ok(())
     }

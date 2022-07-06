@@ -1,15 +1,14 @@
-use crate::{types::Vid, processor::Instruction};
+use crate::{types::Vid, processor::Instruction, instruction_memory::InstructionMemory};
 
 mod mock;
 
-pub trait GraphConsensus {
-    type Error;
-    type Transaction;
+pub trait GraphConsensus: InstructionMemory<Instruction = Instruction<Self::Operator>> {
+    type Operator;
     type Graph;
 
     fn update_graph(&mut self, new_graph: Self::Graph) -> Result<(), Self::Error>;
-    fn next_tx(&mut self) -> Option<Self::Transaction>;
-    fn push_tx(&mut self, tx: Self::Transaction) -> Result<(), Self::Error>;
+    fn push_tx(&mut self, tx: Transaction<Self::Operator>) -> Result<(), Self::Error>;
+    fn next_tx(&mut self) -> Option<Transaction<Self::Operator>>;
 }
 
 pub trait DataDiscoverer {

@@ -8,7 +8,7 @@ use libp2p::{
         SubstreamProtocol, handler::{OutboundUpgradeSend, InboundUpgradeSend},
     },
 };
-use tracing::{info, debug, trace, warn};
+use tracing::{debug, trace, warn};
 
 use crate::protocol::{Error as ProtocolError, Message, SwarmComputerProtocol};
 
@@ -38,7 +38,8 @@ impl Display for ConnectionError {
 
 #[derive(Debug)]
 pub enum ConnectionSuccess {
-    MessageReceived(Message),
+    RequestReceived(Message),
+    ResponseReceived(OutgoingResponse),
 }
 
 pub struct Connection {
@@ -108,7 +109,7 @@ impl Connection {
     async fn handle_outgoing_message(
         stream: NegotiatedSubstream,
         msg: Message,
-    ) -> Result<(NegotiatedSubstream, Option<Message>), ProtocolError> {
+    ) -> Result<(NegotiatedSubstream, Option<OutgoingResponse>), ProtocolError> {
         let stream = SwarmComputerProtocol::send_message(stream, &msg).await?;
         Ok(match msg {
             Message::Single(_) => (stream, None),
@@ -116,17 +117,23 @@ impl Connection {
                 let (s, m) =
                     SwarmComputerProtocol::receive_message::<NegotiatedSubstream, Message>(stream)
                         .await?;
-                (s, Some(m))
+                (s, Some(OutgoingResponse{sent: msg, received: m}))
             }
         })
     }
+}
+
+#[derive(Debug)]
+pub struct OutgoingResponse {
+    sent: Message,
+    received: Message,
 }
 
 enum OutgoingState<S> {
     /// Waiting for requests to send
     Idle(S),
     /// Initiated sending request (optionally, get response) in stored future
-    Active{out_handler: BoxFuture<'static, Result<(S, Option<Message>), ProtocolError>>, timer: Pin<Box<Sleep>>},
+    Active{out_handler: BoxFuture<'static, Result<(S, Option<OutgoingResponse>), ProtocolError>>, timer: Pin<Box<Sleep>>},
     /// New substream is being instantiated
     Negotiating,
 }
@@ -253,7 +260,7 @@ impl ConnectionHandler for Connection {
                     // Message received, passing it further and start waiting for a new one
                     self.incoming = Some(Self::InboundProtocol::receive_message(stream).boxed());
                     return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
-                        ConnectionSuccess::MessageReceived(msg),
+                        ConnectionSuccess::RequestReceived(msg),
                     )));
                 }
             }
@@ -296,7 +303,7 @@ impl ConnectionHandler for Connection {
                         self.outgoing = Some(OutgoingState::Idle(stream));
                         if let Some(response) = response {
                             return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
-                                ConnectionSuccess::MessageReceived(response),
+                                ConnectionSuccess::ResponseReceived(response),
                             )));
                         }
                     }

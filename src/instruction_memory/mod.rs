@@ -4,5 +4,5 @@ pub trait InstructionMemory {
     type Instruction;
 
     fn next_instruction(&mut self) -> Option<Self::Instruction>;
-    fn put_instruction(&mut self, instruction: Self::Instruction) -> Result<(), Self::Error>;
+    fn push_instruction(&mut self, instruction: Self::Instruction) -> Result<(), Self::Error>;
 }
