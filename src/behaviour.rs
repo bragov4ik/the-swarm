@@ -5,7 +5,7 @@ use crate::{
     data_memory::DataMemory,
     handler::{Connection, ConnectionError, ConnectionSuccess, IncomingEvent},
     processor::Processor,
-    protocol::{Message},
+    protocol::{Message, Request, Response},
     types::{Shard, Vid},
 };
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler};
@@ -81,8 +81,16 @@ where
                 match event {
                     Ok(success) => {
                         match success {
-                            ConnectionSuccess::RequestReceived(_) => todo!(),
+                            ConnectionSuccess::RequestReceived(Request::Shard(id)) => {
+                                let result = self.data_memory.get(&id);
+                                return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                                    peer_id,
+                                    handler: NotifyHandler::One(connection),
+                                    event: IncomingEvent::SendResponse(Response::Shard(result)),
+                                });
+                            },
                             ConnectionSuccess::ResponseReceived(_) => todo!(),
+                            ConnectionSuccess::SimpleReceived(_) => todo!(),
                         }
                     }
                     // ConnectionSuccess::MessageReceived(msg)) => match msg {

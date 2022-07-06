@@ -9,34 +9,34 @@ use crate::types::{Graph, Shard, Vid};
 
 // TODO: do not forget to make static size of values small
 // (Clippy should report though)
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Request {
     Shard(Vid),
 }
 
 // TODO: do not forget to make static size of values small
 // (Clippy should report though)
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Response {
     Shard(Option<Shard>)
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Simple {
     GossipGraph(Graph),
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub enum Incoming {
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub enum Primary {
     Request(Request),
     Simple(Simple),
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Message {
-    // Each request in incoming should have corresponding response
-    Incoming(Incoming),
-    Outgoing(Response),
+    // Each request in primary should have corresponding response
+    Primary(Primary),
+    Secondary(Response),
 }
 
 pub struct SwarmComputerProtocol;
@@ -157,13 +157,13 @@ mod tests {
 
     fn sample_messages() -> Vec<Message> {
         vec![
-            Message::Incoming(Incoming::Request(Request::Shard(
+            Message::Primary(Primary::Request(Request::Shard(
                 Vid(1234),
             ))),
-            Message::Outgoing(Response::Shard(
+            Message::Secondary(Response::Shard(
                 Some(Shard(1337)),
             )),
-            Message::Incoming(Incoming::Simple(Simple::GossipGraph(Graph {
+            Message::Primary(Primary::Simple(Simple::GossipGraph(Graph {
                 some_data: "abobus sus among us".to_owned(),
             }))),
         ]
