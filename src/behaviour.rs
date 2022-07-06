@@ -5,8 +5,8 @@ use crate::{
     data_memory::DataMemory,
     handler::{Connection, ConnectionError, ConnectionSuccess, IncomingEvent},
     processor::Processor,
-    protocol::{Message, RequestResponse, RequestResponsePayload, SimpleMessage},
-    types::{Shard, Vid}, utils::create_shard_response,
+    protocol::{Message},
+    types::{Shard, Vid},
 };
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler};
 
@@ -79,22 +79,28 @@ where
                 event,
             }) => {
                 match event {
-                    Ok(ConnectionSuccess::MessageReceived(msg)) => match msg {
-                        Message::Pair(RequestResponse::Shard(payload)) => match payload {
-                            RequestResponsePayload::Request(id) => {
-                                let result = self.data_memory.get(&id);
-                                return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                                    peer_id,
-                                    handler: NotifyHandler::One(connection),
-                                    event: IncomingEvent::SendMessage(create_shard_response(result)),
-                                });
-                            }
-                            RequestResponsePayload::Response(shard) => {
-                                self.incoming_shards_buffer[]
-                            },
-                        },
-                        Message::Single(SimpleMessage::GossipGraph(graph)) => todo!(),
-                    },
+                    Ok(success) => {
+                        match success {
+                            ConnectionSuccess::RequestReceived(_) => todo!(),
+                            ConnectionSuccess::ResponseReceived(_) => todo!(),
+                        }
+                    }
+                    // ConnectionSuccess::MessageReceived(msg)) => match msg {
+                    //     Message::Pair(RequestResponse::Shard(payload)) => match payload {
+                    //         RequestResponsePayload::Request(id) => {
+                    //             let result = self.data_memory.get(&id);
+                    //             return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                    //                 peer_id,
+                    //                 handler: NotifyHandler::One(connection),
+                    //                 event: IncomingEvent::SendMessage(create_shard_response(result)),
+                    //             });
+                    //         }
+                    //         RequestResponsePayload::Response(shard) => {
+                    //             self.incoming_shards_buffer[]
+                    //         },
+                    //     },
+                    //     Message::Single(SimpleMessage::GossipGraph(graph)) => todo!(),
+                    // },
                     Err(ConnectionError::PeerUnsupported) => {
                         return Poll::Ready(NetworkBehaviourAction::CloseConnection {
                             peer_id,

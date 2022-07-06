@@ -10,7 +10,7 @@ use libp2p::{
 };
 use tracing::{debug, trace, warn};
 
-use crate::protocol::{Error as ProtocolError, Message, SwarmComputerProtocol};
+use crate::protocol::{Error as ProtocolError, Message, SwarmComputerProtocol, Request, Response, Simple, Incoming};
 
 // Handler state
 enum State {
@@ -38,8 +38,9 @@ impl Display for ConnectionError {
 
 #[derive(Debug)]
 pub enum ConnectionSuccess {
-    RequestReceived(Message),
-    ResponseReceived(OutgoingResponse),
+    RequestReceived(Request),
+    ResponseReceived(Request, Response),
+    SimpleReceived(Simple),
 }
 
 pub struct Connection {
@@ -53,7 +54,7 @@ pub struct Connection {
     /// same logic: moves inside and moves back when done).
     /// On resolving, returns next message and the stream back. See
     /// `inject_fully_negotiated_inbound` and `poll` to see details.
-    incoming: Option<BoxFuture<'static, Result<(NegotiatedSubstream, Message), ProtocolError>>>,
+    incoming: Option<BoxFuture<'static, Result<(NegotiatedSubstream, Incoming), ProtocolError>>>,
 
     // TODO: change to list of sent request (that "await" response) that report 'timed out'
     // after a while. This should allow to handle multiple requests at once.
@@ -78,6 +79,11 @@ pub struct Connection {
 #[derive(Debug)]
 pub enum HandlerError {
     Connection(ConnectionError),
+    Protocol(ProtocolError),
+    // Tried to start request-response sequence with response
+    InitiatedResponse,
+    // Peer sent `msg` instead of response
+    ResponseExpected(Message),
 }
 
 impl std::error::Error for HandlerError {}
@@ -85,7 +91,10 @@ impl std::error::Error for HandlerError {}
 impl Display for HandlerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HandlerError::Connection(c) => write!(f, "{}", c),
+            HandlerError::Connection(e) => write!(f, "{}", e),
+            HandlerError::Protocol(e) => write!(f, "{}", e),
+            HandlerError::InitiatedResponse => write!(f, "Cannot send response before request"),
+            HandlerError::ResponseExpected(m) => write!(f, "Peer expected to provide response, however sent {:?}", m),
         }
     }
 }
@@ -104,36 +113,41 @@ impl Connection {
         }
     }
 
-    /// Sends the given message and depending on its type also may
-    /// wait for the response on the same stream.
+    /// Sends the given message. If it is a request, also waits
+    /// for a response from the connection.
+    /// 
+    /// Response returned together with sent request to provide
+    /// context for handling the payload later (e.g. to know which
+    /// vector does the received shard belongs to).
     async fn handle_outgoing_message(
         stream: NegotiatedSubstream,
-        msg: Message,
-    ) -> Result<(NegotiatedSubstream, Option<OutgoingResponse>), ProtocolError> {
-        let stream = SwarmComputerProtocol::send_message(stream, &msg).await?;
-        Ok(match msg {
-            Message::Single(_) => (stream, None),
-            Message::Pair(_) => {
-                let (s, m) =
-                    SwarmComputerProtocol::receive_message::<NegotiatedSubstream, Message>(stream)
-                        .await?;
-                (s, Some(OutgoingResponse{sent: msg, received: m}))
-            }
-        })
+        to_send: Message,
+    ) -> Result<(NegotiatedSubstream, Option<(Request, Response)>), HandlerError> {
+        let stream = SwarmComputerProtocol::send_message(stream, &to_send).await
+            .map_err(HandlerError::Protocol)?;
+        match to_send {
+            Message::Incoming(Incoming::Simple(_)) => Ok((stream, None)),
+            Message::Incoming(Incoming::Request(sent)) => {
+                let (s, received) =
+                    SwarmComputerProtocol::receive_message::<NegotiatedSubstream, Message>(stream).await
+                        .map_err(HandlerError::Protocol)?;
+                match received {
+                    Message::Outgoing(received) => Ok((s, Some((sent, received)))),
+                    Message::Incoming(_) => Err(HandlerError::ResponseExpected(received)),
+                }
+                
+            },
+            Message::Outgoing(_) => Err(HandlerError::InitiatedResponse),
+        }
     }
-}
-
-#[derive(Debug)]
-pub struct OutgoingResponse {
-    sent: Message,
-    received: Message,
 }
 
 enum OutgoingState<S> {
     /// Waiting for requests to send
     Idle(S),
-    /// Initiated sending request (optionally, get response) in stored future
-    Active{out_handler: BoxFuture<'static, Result<(S, Option<OutgoingResponse>), ProtocolError>>, timer: Pin<Box<Sleep>>},
+    /// Initiated sending request (optionally, get response) in stored future.
+    /// Request is also returned as context for processing later.
+    Active{out_handler: BoxFuture<'static, Result<(S, Option<(Request, Response)>), HandlerError>>, timer: Pin<Box<Sleep>>},
     /// New substream is being instantiated
     Negotiating,
 }
@@ -259,8 +273,12 @@ impl ConnectionHandler for Connection {
                 Poll::Ready(Ok((stream, msg))) => {
                     // Message received, passing it further and start waiting for a new one
                     self.incoming = Some(Self::InboundProtocol::receive_message(stream).boxed());
+                    let success = match msg {
+                        Incoming::Request(r) => ConnectionSuccess::RequestReceived(r),
+                        Incoming::Simple(s) => ConnectionSuccess::SimpleReceived(s),
+                    };
                     return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
-                        ConnectionSuccess::RequestReceived(msg),
+                        success
                     )));
                 }
             }
@@ -301,9 +319,9 @@ impl ConnectionHandler for Connection {
                         trace!("Finished request successfully. Response: {:?}", response);
                         self.errors_in_row = 0;
                         self.outgoing = Some(OutgoingState::Idle(stream));
-                        if let Some(response) = response {
+                        if let Some((req, resp)) = response {
                             return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
-                                ConnectionSuccess::ResponseReceived(response),
+                                ConnectionSuccess::ResponseReceived(req, resp),
                             )));
                         }
                     }

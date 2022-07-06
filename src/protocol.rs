@@ -9,29 +9,34 @@ use crate::types::{Graph, Shard, Vid};
 
 // TODO: do not forget to make static size of values small
 // (Clippy should report though)
-/// Payloads transferred through the protocol
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub enum Message {
-    Pair(RequestResponse),
-    Single(SimpleMessage),
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum Request {
+    Shard(Vid),
 }
 
-// Messages that are expected to work in a request-response manner
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub enum RequestResponse {
-    Shard(RequestResponsePayload<Vid, Option<Shard>>),
+// TODO: do not forget to make static size of values small
+// (Clippy should report though)
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum Response {
+    Shard(Option<Shard>)
 }
 
-// Messages that do not expect any response back
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub enum SimpleMessage {
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum Simple {
     GossipGraph(Graph),
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub enum RequestResponsePayload<TRequest, TResponse> {
-    Request(TRequest),
-    Response(TResponse),
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum Incoming {
+    Request(Request),
+    Simple(Simple),
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum Message {
+    // Each request in incoming should have corresponding response
+    Incoming(Incoming),
+    Outgoing(Response),
 }
 
 pub struct SwarmComputerProtocol;
@@ -152,15 +157,15 @@ mod tests {
 
     fn sample_messages() -> Vec<Message> {
         vec![
-            Message::Pair(RequestResponse::Shard(RequestResponsePayload::Request(
+            Message::Incoming(Incoming::Request(Request::Shard(
                 Vid(1234),
             ))),
-            Message::Pair(RequestResponse::Shard(RequestResponsePayload::Response(
+            Message::Outgoing(Response::Shard(
                 Some(Shard(1337)),
-            ))),
-            Message::Single(SimpleMessage::GossipGraph(Graph {
+            )),
+            Message::Incoming(Incoming::Simple(Simple::GossipGraph(Graph {
                 some_data: "abobus sus among us".to_owned(),
-            })),
+            }))),
         ]
     }
 
