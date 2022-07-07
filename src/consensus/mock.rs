@@ -1,10 +1,12 @@
 use std::collections::VecDeque;
+use serde::{Serialize, Deserialize};
 use void::Void;
 
 use crate::{instruction_memory::InstructionMemory, processor::Instruction};
 
 use super::{GraphConsensus, Transaction};
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct MockConsensus<OP> {
     transactions: VecDeque<Transaction<OP>>
 }

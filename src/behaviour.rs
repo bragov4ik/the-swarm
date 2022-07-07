@@ -5,10 +5,11 @@ use crate::{
     data_memory::DataMemory,
     handler::{Connection, ConnectionError, ConnectionSuccess, IncomingEvent},
     processor::Processor,
-    protocol::{Message, Request, Response},
+    protocol::{Message, Request, Response, Simple},
     types::{Shard, Vid},
 };
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler};
+use tracing::{error, debug, warn};
 
 struct ConnectionEvent {
     peer_id: libp2p::PeerId,
@@ -43,7 +44,7 @@ impl<C, D, P> Node<C, D, P> {
 impl<TConsensus, TDataMemory, TProcessor> NetworkBehaviour
     for Node<TConsensus, TDataMemory, TProcessor>
 where
-    TConsensus: GraphConsensus + DataDiscoverer + 'static,
+    TConsensus: GraphConsensus<Graph = crate::types::Graph> + DataDiscoverer + 'static,
     TDataMemory: DataMemory<Identifier = Vid, Data = Shard> + 'static,
     TProcessor: Processor + 'static,
 {
@@ -82,6 +83,7 @@ where
                     Ok(success) => {
                         match success {
                             ConnectionSuccess::RequestReceived(Request::Shard(id)) => {
+                                debug!("Received request for getting vector {:?} shard, responding", id);
                                 let result = self.data_memory.get(&id);
                                 return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                                     peer_id,
@@ -89,41 +91,49 @@ where
                                     event: IncomingEvent::SendResponse(Response::Shard(result)),
                                 });
                             },
-                            ConnectionSuccess::ResponseReceived(_) => todo!(),
-                            ConnectionSuccess::SimpleReceived(_) => todo!(),
+                            ConnectionSuccess::ResponseReceived(Request::Shard(id), Response::Shard(shard)) => {
+                                match shard {
+                                    Some(shard) => {
+                                        debug!("Received shard for vector {:?}", id);
+                                        if let Some(queue) = self.incoming_shards_buffer.get_mut(&id) {
+                                            queue.push_front(shard)
+                                        }
+                                    },
+                                    None => debug!("Received shard but vector {:?} is not reconstructed", id),
+                                }
+                            },
+                            ConnectionSuccess::SimpleReceived(Simple::GossipGraph(graph)) => {
+                                match self.consensus.update_graph(graph) {
+                                    Ok(()) => {},
+                                    Err(err) => warn!("Error updating graph with gossip: {:?}", err),
+                                }
+                            },
                         }
                     }
-                    // ConnectionSuccess::MessageReceived(msg)) => match msg {
-                    //     Message::Pair(RequestResponse::Shard(payload)) => match payload {
-                    //         RequestResponsePayload::Request(id) => {
-                    //             let result = self.data_memory.get(&id);
-                    //             return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                    //                 peer_id,
-                    //                 handler: NotifyHandler::One(connection),
-                    //                 event: IncomingEvent::SendMessage(create_shard_response(result)),
-                    //             });
-                    //         }
-                    //         RequestResponsePayload::Response(shard) => {
-                    //             self.incoming_shards_buffer[]
-                    //         },
-                    //     },
-                    //     Message::Single(SimpleMessage::GossipGraph(graph)) => todo!(),
-                    // },
                     Err(ConnectionError::PeerUnsupported) => {
                         return Poll::Ready(NetworkBehaviourAction::CloseConnection {
                             peer_id,
                             connection: libp2p::swarm::CloseConnection::One(connection),
                         })
                     }
-                    // do something idk, save stats mb
-                    Err(ConnectionError::Timeout) => todo!(),
+                    // save stats mb
+                    // logged in handler already; also counted there to close conneciton
+                    // on too many errors
+                    Err(ConnectionError::Timeout) => { },
                     Err(ConnectionError::Other(err)) => {
-                        // log error
+                        // Fail fast
+                        error!("Connection to {} returned error {:?}", peer_id, err);
+                        return Poll::Ready(NetworkBehaviourAction::CloseConnection {
+                            peer_id,
+                            connection: libp2p::swarm::CloseConnection::One(connection),
+                        })
                     }
                 }
             }
             None => {}
         }
+        
+
         Poll::Pending
     }
 }

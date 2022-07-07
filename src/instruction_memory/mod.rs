@@ -1,6 +1,8 @@
 
+pub(crate) mod mock;
+
 pub trait InstructionMemory {
-    type Error;
+    type Error: std::fmt::Debug;
     type Instruction;
 
     fn next_instruction(&mut self) -> Option<Self::Instruction>;

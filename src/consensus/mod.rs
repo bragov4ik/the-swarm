@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{types::Vid, processor::Instruction, instruction_memory::InstructionMemory};
 
-mod mock;
+pub(crate) mod mock;
 
 pub trait GraphConsensus: InstructionMemory<Instruction = Instruction<Self::Operator>> {
     type Operator;
@@ -18,6 +20,7 @@ pub trait DataDiscoverer {
     fn shard_locations(&self, vector_id: Self::DataIdentifier) -> Option<Vec<Self::PeerAddr>>;
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Transaction<OP> {
     /// Indicates that author stores shard of vector with id `Vid`
     Stored(Vid),

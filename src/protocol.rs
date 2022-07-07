@@ -5,7 +5,7 @@ use tracing::{trace, debug};
 use std::{fmt::Display, iter};
 use void::Void;
 
-use crate::types::{Graph, Shard, Vid};
+use crate::{types::{Shard, Vid, Graph}};
 
 // TODO: do not forget to make static size of values small
 // (Clippy should report though)
@@ -118,7 +118,7 @@ impl SwarmComputerProtocol {
         Ok((stream, msg))
     }
 
-    pub async fn send_message<S, R>(mut stream: S, msg: &R) -> Result<S, Error>
+    pub async fn send_message<S, R>(mut stream: S, msg: R) -> Result<S, Error>
     where
         S: AsyncWrite + Unpin,
         R: Serialize,
@@ -144,7 +144,20 @@ impl SwarmComputerProtocol {
 mod tests {
     use super::*;
 
-    fn mock_one_shot_stream(msg: &Message) -> Vec<u8> {
+    #[derive(Serialize, Deserialize, PartialEq)]
+    enum TestMessage {
+        Variant,
+        VariantWithData(String),
+        NestedVariant(SomeEnum)
+    }
+
+    #[derive(Serialize, Deserialize, PartialEq)]
+    enum SomeEnum {
+        A,
+        B(i32),
+    }
+
+    fn mock_one_shot_stream(msg: &TestMessage) -> Vec<u8> {
         let mut serialized = bincode::serialize(&msg).expect("serialization failed");
         let payload_size = serialized
             .len()
@@ -155,17 +168,12 @@ mod tests {
         stream_to_send
     }
 
-    fn sample_messages() -> Vec<Message> {
+    fn sample_messages() -> Vec<TestMessage> {
         vec![
-            Message::Primary(Primary::Request(Request::Shard(
-                Vid(1234),
-            ))),
-            Message::Secondary(Response::Shard(
-                Some(Shard(1337)),
-            )),
-            Message::Primary(Primary::Simple(Simple::GossipGraph(Graph {
-                some_data: "abobus sus among us".to_owned(),
-            }))),
+            TestMessage::Variant,
+            TestMessage::VariantWithData("abobus sus among us".to_owned()),
+            TestMessage::NestedVariant(SomeEnum::A),
+            TestMessage::NestedVariant(SomeEnum::B(1337)),
         ]
     }
 
@@ -174,7 +182,7 @@ mod tests {
         let messages = sample_messages();
         for m in messages {
             let stream = mock_one_shot_stream(&m);
-            let (slice, accepted_msg): (&[u8], Message) =
+            let (slice, accepted_msg): (&[u8], TestMessage) =
                 SwarmComputerProtocol::receive_message(&stream[..])
                     .await
                     .expect("read failed");
@@ -184,7 +192,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn writes_reads_correctly() {
+    async fn writes_then_reads_correctly() {
         let messages = sample_messages();
 
         // Send messages to stream (vector of bytes)
@@ -198,7 +206,7 @@ mod tests {
         // Read messages from the vector
         let mut stream_left = &stream[..];
         for m in &messages {
-            let (updated_stream, accepted_msg): (&[u8], Message) =
+            let (updated_stream, accepted_msg): (&[u8], TestMessage) =
                 SwarmComputerProtocol::receive_message(stream_left)
                     .await
                     .expect("write failed");

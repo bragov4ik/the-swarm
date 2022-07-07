@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use void::Void;
+
 use super::InstructionMemory;
 
 
@@ -7,7 +9,7 @@ pub struct MockInstructionMemory<I> {
     inner: VecDeque<I>,
 }
 
-impl InstructionMemory for MockInstructionMemory<I> {
+impl<I> InstructionMemory for MockInstructionMemory<I> {
     type Error = Void;
     type Instruction = I;
 

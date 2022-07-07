@@ -1,5 +1,10 @@
-mod mock;
+use serde::{Serialize, Deserialize};
 
+
+
+pub(crate) mod mock;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Instruction<OP> {
     And(OP, OP),
     Or(OP, OP),

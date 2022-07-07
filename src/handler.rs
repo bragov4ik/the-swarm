@@ -8,7 +8,7 @@ use libp2p::{
         SubstreamProtocol, handler::{OutboundUpgradeSend, InboundUpgradeSend},
     },
 };
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace, warn, error};
 
 use crate::protocol::{Error as ProtocolError, Message, SwarmComputerProtocol, Request, Response, Simple, Primary};
 
@@ -229,9 +229,9 @@ impl ConnectionHandler for Connection {
         trace!("Received event {:?}", event);
         match event {
             IncomingEvent::SendResponse(r) => {
-                match self.response_queue {
+                match &self.response_queue {
                     // Not gamebreaking, report & ignore
-                    Some(r) => warn!("No room in queue for response {:?}. Probably an attempt to send a response without a request.", r),
+                    Some(_) => warn!("No room in queue for response {:?}. Probably an attempt to send a response without a request.", r),
                     None => self.response_queue = Some(r),
                 }
             }
@@ -302,12 +302,16 @@ impl ConnectionHandler for Connection {
 
         // Handle incoming requests
         trace!("Polling incoming handler's future");
-        if let Some(incoming_state) = self.incoming {
+        // Make sure to set corresponding `self.incoming` state in each match arm
+        if let Some(incoming_state) = self.incoming.take() {
             match incoming_state {
-                IncomingState::Idle(fut) => match fut.poll_unpin(cx) {
-                    Poll::Pending => trace!("Pending, skipping"),
+                IncomingState::Idle(mut fut) => match fut.poll_unpin(cx) {
+                    Poll::Pending => {
+                        trace!("Pending, skipping");
+                        self.incoming = Some(IncomingState::Idle(fut));
+                    },
                     Poll::Ready(Err(e)) => {
-                        debug!("Inbound request error: {:?}", e);
+                        error!("Inbound request error: {:?}", e);
                         self.incoming = None;
                     }
                     Poll::Ready(Ok((stream, msg))) => {
@@ -328,15 +332,25 @@ impl ConnectionHandler for Connection {
                     }
                 },
                 IncomingState::PreparingResponse(stream) => {
-                    match self.response_queue {
-                        Some(resp) => self.incoming = Some(IncomingState::SendingResponse(Box::pin(SwarmComputerProtocol::send_message(stream, &Message::Secondary(resp))))),
-                        None => {},
+                    match self.response_queue.take() {
+                        Some(resp) => {
+                            let msg = Message::Secondary(resp);
+                            self.incoming = Some(IncomingState::SendingResponse(Box::pin(SwarmComputerProtocol::send_message(stream, msg))))
+                        },
+                        None => {
+                            // Still waiting
+                            self.incoming = Some(IncomingState::PreparingResponse(stream));
+                        },
                     }
                 },
-                IncomingState::SendingResponse(fut) => match fut.poll_unpin(cx) {
-                    Poll::Pending => trace!("Still sending response"),
+                IncomingState::SendingResponse(mut fut) => match fut.poll_unpin(cx) {
+                    Poll::Pending => {
+                        trace!("Still sending response");
+                        self.incoming = Some(IncomingState::SendingResponse(fut));
+                    },
                     Poll::Ready(Err(e)) => {
                         debug!("Error sending a message");
+                        self.incoming = None;
                         self.error_queue.push_front(ConnectionError::Other(Box::new(e)))
                     },
                     Poll::Ready(Ok(stream)) => {
@@ -344,13 +358,13 @@ impl ConnectionHandler for Connection {
                     }
                 },
             }
-            
         }
+        // TODO: check do we need to reinitiate incoming if error happened
 
         loop {
             // Check for outgoing failures
             while let Some(error) = self.error_queue.pop_back() {
-                debug!("Out failure: {:?}", error);
+                error!("Out failure: {:?}", error);
                 self.errors_in_row += 1;
                 if self.errors_in_row >= self.max_errors {
                     debug!("Too many failures ({}). Closing connection.", self.errors_in_row);

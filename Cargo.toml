@@ -9,6 +9,7 @@ edition = "2021"
 bincode = "1.3.3"
 futures = "0.3"
 libp2p = "0.45.1"
+rust-hashgraph = { git = "https://github.com/jaybutera/rust-hashgraph.git", branch = "master" }
 tokio = { version = "1.19.2", features = ["full"] }
 tracing = "0.1.35"
 tracing-subscriber = "0.3.14"
