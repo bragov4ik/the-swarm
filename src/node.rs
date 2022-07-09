@@ -504,7 +504,17 @@ where
 
         // TODO: remove (mock)
         trace!("Checking if allowed to execute by user");
-        if self.execute {}
+        if self.execute {
+            while let Some(instruction) = self.instructions_to_execute.pop_back() {
+                if let Err(e) = self.consensus.push_instruction(instruction.clone()) {
+                    warn!("Error queueing next instruction: {:?}", e);
+                } else {
+                    debug!("Added instruction {:?}", instruction);
+                }
+            }
+            info!("Finished adding initial instructions");
+            self.execute = false;
+        }
 
         // TODO: remove, mock intitalization
         trace!("Distribution of initial data");
