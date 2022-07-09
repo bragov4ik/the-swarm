@@ -244,6 +244,7 @@ where
                 e
             );
         }
+        debug!("Saved shard locally.");
     }
 }
 
@@ -333,16 +334,18 @@ where
                                 }
                             }
                             None => {
-                                debug!("Received shard but vector {:?} is not reconstructed", id)
+                                debug!("Received response for vector {:?} but without shard", id)
                             }
                         },
                         ConnectionReceived::Simple(Simple::GossipGraph(graph)) => {
+                            debug!("Received graph update");
                             match self.consensus.update_graph(graph) {
                                 Ok(()) => {}
                                 Err(err) => warn!("Error updating graph with gossip: {:?}", err),
                             }
                         }
                         ConnectionReceived::Simple(Simple::StoreShard((id, data))) => {
+                            debug!("Received request to save shard of data id {:?}", id);
                             self.save_shard_locally(id, data, *params.local_peer_id());
                         }
                     },
@@ -376,6 +379,7 @@ where
                 let random_peer = self.get_random_peer();
                 self.consensus_gossip_timer = Box::pin(sleep(self.consensus_gossip_timeout));
                 if let Some(random_peer) = random_peer {
+                    debug!("Sending gossip to peer {}", random_peer);
                     return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                         peer_id: random_peer,
                         handler: NotifyHandler::Any,
@@ -384,23 +388,22 @@ where
                         ))),
                     });
                 }
+                else {
+                    debug!("Time to send gossip but no peers found, idling...");
+                }
             }
             Poll::Pending => {
                 // Just wait
             }
         }
 
-        trace!("Distributing received shards");
+        trace!("Distributing received shards to \"waiters\"");
         match &mut self.exec_state {
             ExecutionState::WaitingInstruction => {}
             ExecutionState::WaitingData { instruction } => {
                 let buf = &mut self.incoming_shards_buffer;
                 match instruction {
-                    Instruction::And((id1, first), (id2, second), _) => {
-                        Self::retrieve_from_buf(buf, id1, first);
-                        Self::retrieve_from_buf(buf, id2, second);
-                    }
-                    Instruction::Or((id1, first), (id2, second), _) => {
+                    Instruction::And((id1, first), (id2, second), _) | Instruction::Or((id1, first), (id2, second), _) => {
                         Self::retrieve_from_buf(buf, id1, first);
                         Self::retrieve_from_buf(buf, id2, second);
                     }
@@ -423,7 +426,9 @@ where
                     Instruction::Not((_, Some(o)), dest) => Some(Instruction::Not(o, dest)),
                     _ => None,
                 };
+                // TODO: remove print of whole instruction
                 if let Some(ready_instruction) = ready_instruction {
+                    debug!("Received all data, executing instruction {:?}", ready_instruction);
                     match <TProcessor as Processor>::execute(&ready_instruction) {
                         Ok(res) => {
                             let dest_id = (*ready_instruction.get_dest()).clone();
@@ -431,7 +436,7 @@ where
                                 warn!("Tried to overwrite data in instruction, the execution result is not saved")
                             } else {
                                 match self.data_memory.put(dest_id, res) {
-                                    Ok(None) => {}
+                                    Ok(None) => debug!("Executed and saved result."),
                                     // Shouldn't happen, we've just checked it
                                     Ok(Some(_)) => error!("Overwrote data after executing an instruction. This behaviour is unintended and is most likely a bug."),
                                     Err(e) => error!("Error saving result: {:?}", e),
@@ -446,6 +451,7 @@ where
             }
             ExecutionState::WaitingInstruction => {
                 if let Some(instruction) = self.consensus.next_instruction() {
+                    debug!("Found new instruction to execute: {:?}", instruction);
                     // Now we need to obtain data for computations. We try to get it from local storage,
                     // if unsuccessful, discover & send requests to corresponding nodes.
                     let state_instruction = match instruction {
@@ -461,6 +467,7 @@ where
                         }
                     };
 
+                    debug!("Scheduling data requests (if needed)");
                     // Schedule data requests, if needed
                     let success = match &state_instruction {
                         Instruction::And((i1, opt1), (i2, opt2), _)
