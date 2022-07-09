@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash, fmt::Debug};
+use std::{collections::HashMap, fmt::Debug, hash::Hash};
 use void::Void;
 
 pub trait DataMemory {

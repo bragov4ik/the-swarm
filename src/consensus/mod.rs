@@ -37,7 +37,9 @@ use crate::{instruction_memory::InstructionMemory, processor::Instruction, types
 
 pub mod mock;
 
-pub trait GraphConsensus: InstructionMemory<Instruction = Instruction<Self::Operator, Vid>> {
+pub trait GraphConsensus:
+    InstructionMemory<Instruction = Instruction<Self::Operator, Vid>>
+{
     type Operator;
     type Graph;
 

@@ -7,13 +7,13 @@ use std::{
 
 use crate::{
     consensus::{DataDiscoverer, GraphConsensus},
-    data_memory::{DataMemory, self},
+    data_memory::DataMemory,
     handler::{Connection, ConnectionError, ConnectionSuccess, IncomingEvent as HandlerEvent},
-    processor::{Processor, Instruction},
+    processor::{Instruction, Processor},
     protocol::{Primary, Request, Response, Simple},
     types::{Shard, Vid},
 };
-use futures::{Future, FutureExt};
+use futures::Future;
 use libp2p::{
     swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler},
     PeerId,
@@ -53,7 +53,9 @@ where
 }
 
 enum ExecutionState<OP, ID> {
-    WaitingData { instruction: Instruction<(ID, Option<OP>), ID> },
+    WaitingData {
+        instruction: Instruction<(ID, Option<OP>), ID>,
+    },
     WaitingInstruction,
 }
 
@@ -115,9 +117,13 @@ where
     }
 
     /// Update given entry if it's empty and shard (data) for corresponding id has arrived
-    fn retrieve_from_buf(buf: &mut HashMap<Vid, VecDeque<Shard>>, id: &Vid, entry: &mut Option<Shard>) {
+    fn retrieve_from_buf(
+        buf: &mut HashMap<Vid, VecDeque<Shard>>,
+        id: &Vid,
+        entry: &mut Option<Shard>,
+    ) {
         if let Some(_) = entry {
-            return
+            return;
         }
         let queue = match buf.get_mut(id) {
             Some(b) => b,
@@ -131,14 +137,16 @@ where
         }
     }
 
-
-    fn place_data_request(&mut self, id: Vid) -> Result<(), NoPeerFound>{
+    fn place_data_request(&mut self, id: Vid) -> Result<(), NoPeerFound> {
         let locations = self.consensus.shard_locations(&id);
         if locations.is_empty() {
             return Err(NoPeerFound(id));
         }
         for loc in locations {
-            self.pending_handler_events.push_front((loc, HandlerEvent::SendPrimary(Primary::Request(Request::Shard(id.clone())))));
+            self.pending_handler_events.push_front((
+                loc,
+                HandlerEvent::SendPrimary(Primary::Request(Request::Shard(id.clone()))),
+            ));
         }
         Ok(())
     }
@@ -152,7 +160,9 @@ impl<TConsensus, TDataMemory, TProcessor> NetworkBehaviour
     for Node<TConsensus, TDataMemory, TProcessor>
 where
     // Operator = Vid because we don't store actual data in the consensus
-    TConsensus: GraphConsensus<Graph = crate::types::Graph, Operator = Vid> + DataDiscoverer<DataIdentifier = <TDataMemory as DataMemory>::Identifier, PeerAddr = PeerId> + 'static,
+    TConsensus: GraphConsensus<Graph = crate::types::Graph, Operator = Vid>
+        + DataDiscoverer<DataIdentifier = <TDataMemory as DataMemory>::Identifier, PeerAddr = PeerId>
+        + 'static,
     TDataMemory: DataMemory<Identifier = Vid, Data = Shard> + 'static,
     TProcessor: Processor<Id = Vid, Operand = <TDataMemory as DataMemory>::Data> + 'static,
 {
@@ -185,12 +195,14 @@ where
 
         debug!("Checking pending handler events to send");
         match self.pending_handler_events.pop_back() {
-            Some((addr, e)) => return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                peer_id: addr,
-                handler: NotifyHandler::Any,
-                event: e,
-            }),
-            None => {},
+            Some((addr, e)) => {
+                return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                    peer_id: addr,
+                    handler: NotifyHandler::Any,
+                    event: e,
+                })
+            }
+            None => {}
         }
 
         // Basically handling incoming requests & responses
@@ -275,23 +287,23 @@ where
             }
             Poll::Pending => {
                 // Just wait
-            },
+            }
         }
 
         debug!("Distributing received shards");
         match &mut self.exec_state {
-            ExecutionState::WaitingInstruction => {},
+            ExecutionState::WaitingInstruction => {}
             ExecutionState::WaitingData { instruction } => {
                 let buf = &mut self.incoming_shards_buffer;
                 match instruction {
                     Instruction::And((id1, first), (id2, second), _) => {
                         Self::retrieve_from_buf(buf, id1, first);
                         Self::retrieve_from_buf(buf, id2, second);
-                    },
+                    }
                     Instruction::Or((id1, first), (id2, second), _) => {
                         Self::retrieve_from_buf(buf, id1, first);
                         Self::retrieve_from_buf(buf, id2, second);
-                    },
+                    }
                     Instruction::Not((id, shard), _) => Self::retrieve_from_buf(buf, id, shard),
                 }
             }
@@ -302,10 +314,14 @@ where
             ExecutionState::WaitingData { instruction } => {
                 // `Some(<instruction>)` if all operands are retrieved and we're ready to execute it
                 let ready_instruction = match instruction {
-                    Instruction::And((_, Some(o1)), (_, Some(o2)), dest) => Some(Instruction::And(o1, o2, dest)),
-                    Instruction::Or((_, Some(o1)), (_, Some(o2)), dest) => Some(Instruction::Or(o1, o2, dest)),
+                    Instruction::And((_, Some(o1)), (_, Some(o2)), dest) => {
+                        Some(Instruction::And(o1, o2, dest))
+                    }
+                    Instruction::Or((_, Some(o1)), (_, Some(o2)), dest) => {
+                        Some(Instruction::Or(o1, o2, dest))
+                    }
                     Instruction::Not((_, Some(o)), dest) => Some(Instruction::Not(o, dest)),
-                    _ => None
+                    _ => None,
                 };
                 if let Some(ready_instruction) = ready_instruction {
                     match <TProcessor as Processor>::execute(&ready_instruction) {
@@ -313,8 +329,7 @@ where
                             let dest_id = (*ready_instruction.get_dest()).clone();
                             if self.data_memory.get(&dest_id).is_some() {
                                 warn!("Tried to overwrite data in instruction, the execution result is not saved")
-                            }
-                            else {
+                            } else {
                                 match self.data_memory.put(dest_id, res) {
                                     Ok(None) => {}
                                     // Shouldn't happen, we've just checked it
@@ -322,54 +337,69 @@ where
                                     Err(e) => error!("Error saving result: {:?}", e),
                                 }
                             }
-                        },
+                        }
                         Err(e) => error!("Error executing instruction: {:?}", e),
                     }
                     // Updating state
                     self.exec_state = ExecutionState::WaitingInstruction;
                 }
-            },
+            }
             ExecutionState::WaitingInstruction => {
                 if let Some(instruction) = self.consensus.next_instruction() {
                     // Now we need to obtain data for computations. We try to get it from local storage,
                     // if unsuccessful, discover & send requests to corresponding nodes.
                     let state_instruction = match instruction {
-                        Instruction::And(i1, i2, dest) | Instruction::Or(i1, i2, dest) => Instruction::And((i1.clone(), self.data_memory.get(&i1).cloned()), (i2.clone(), self.data_memory.get(&i2).cloned()), dest),
-                        Instruction::Not(i, dest) => Instruction::Not((i.clone(), self.data_memory.get(&i).cloned()), dest),
+                        Instruction::And(i1, i2, dest) | Instruction::Or(i1, i2, dest) => {
+                            Instruction::And(
+                                (i1.clone(), self.data_memory.get(&i1).cloned()),
+                                (i2.clone(), self.data_memory.get(&i2).cloned()),
+                                dest,
+                            )
+                        }
+                        Instruction::Not(i, dest) => {
+                            Instruction::Not((i.clone(), self.data_memory.get(&i).cloned()), dest)
+                        }
                     };
 
                     // Schedule data requests, if needed
                     let success = match &state_instruction {
-                        Instruction::And((i1, opt1), (i2, opt2), _) | Instruction::Or((i1, opt1), (i2, opt2), _) => {
+                        Instruction::And((i1, opt1), (i2, opt2), _)
+                        | Instruction::Or((i1, opt1), (i2, opt2), _) => {
                             let res1 = if opt1.is_none() {
                                 self.place_data_request(i1.clone())
-                            }
-                            else {
+                            } else {
                                 Ok(())
                             };
                             let res2 = if opt2.is_none() {
                                 self.place_data_request(i2.clone())
-                            }
-                            else {
+                            } else {
                                 Ok(())
                             };
                             res1.and(res2)
-                        },
+                        }
                         Instruction::Not((i, opt), _) => {
                             if opt.is_none() {
                                 self.place_data_request(i.clone())
+                            } else {
+                                Ok(())
                             }
-                            else { Ok(()) }
-                        },
+                        }
                     };
 
                     // Updating state, if needed
                     match success {
-                        Ok(_) => self.exec_state = ExecutionState::WaitingData { instruction: state_instruction },
-                        Err(e) => warn!("Could not find peer id that stores vector {:?}, skipping instruction", e),
+                        Ok(_) => {
+                            self.exec_state = ExecutionState::WaitingData {
+                                instruction: state_instruction,
+                            }
+                        }
+                        Err(e) => warn!(
+                            "Could not find peer id that stores vector {:?}, skipping instruction",
+                            e
+                        ),
                     }
                 }
-            },
+            }
         }
 
         // TODO: add cli interaction

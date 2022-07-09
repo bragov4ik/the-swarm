@@ -28,6 +28,7 @@ pub trait Processor {
     type Id: Eq;
 
     fn execute(ins: &Instruction<&Self::Operand, &Self::Id>) -> Result<Self::Operand, Self::Error>;
-    fn execute_batch(ins: &[Instruction<&Self::Operand, &Self::Id>])
-        -> Vec<Result<Self::Operand, Self::Error>>;
+    fn execute_batch(
+        ins: &[Instruction<&Self::Operand, &Self::Id>],
+    ) -> Vec<Result<Self::Operand, Self::Error>>;
 }
