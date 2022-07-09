@@ -1,16 +1,19 @@
-use std::{collections::VecDeque, fmt::Display, task::Poll, time::Duration, pin::Pin};
-use futures::{future::BoxFuture, FutureExt, Future, AsyncRead};
-use tokio::time::{sleep, Sleep};
+use futures::{future::BoxFuture, AsyncRead, Future, FutureExt};
 use libp2p::{
     core::{upgrade::NegotiationError, UpgradeError},
     swarm::{
+        handler::{InboundUpgradeSend, OutboundUpgradeSend},
         ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, NegotiatedSubstream,
-        SubstreamProtocol, handler::{OutboundUpgradeSend, InboundUpgradeSend},
+        SubstreamProtocol,
     },
 };
-use tracing::{debug, trace, warn, error};
+use std::{collections::VecDeque, fmt::Display, pin::Pin, task::Poll, time::Duration};
+use tokio::time::{sleep, Sleep};
+use tracing::{debug, error, trace, warn};
 
-use crate::protocol::{Error as ProtocolError, Message, SwarmComputerProtocol, Request, Response, Simple, Primary};
+use crate::protocol::{
+    Error as ProtocolError, Message, Primary, Request, Response, Simple, SwarmComputerProtocol,
+};
 
 // Handler state
 enum State {
@@ -49,7 +52,6 @@ pub struct Connection {
 
     // TODO: change to handle multiple parallel requests?? first test
     // maybe it works with them somehow (shouldn't though)
-
     /// State of incoming message stream. `None` if not yet upgraded or for
     /// similar reasons, `Some(_)` if the connection is established
     incoming: Option<IncomingState<NegotiatedSubstream>>,
@@ -60,7 +62,6 @@ pub struct Connection {
 
     // TODO: change to list of sent request (that "await" response) that report 'timed out'
     // after a while. This should allow to handle multiple requests at once.
-
     /// State of outgoing message stream. Some(_) if the connection is established
     /// None if not yet upgraded or for similar reasons.
     outgoing: Option<OutgoingState<NegotiatedSubstream>>,
@@ -97,7 +98,9 @@ impl Display for HandlerError {
             HandlerError::Connection(e) => write!(f, "{}", e),
             HandlerError::Protocol(e) => write!(f, "{}", e),
             HandlerError::InitiatedResponse => write!(f, "Cannot send response before request"),
-            HandlerError::ResponseExpected(m) => write!(f, "Peer expected to provide response, however sent {:?}", m),
+            HandlerError::ResponseExpected(m) => {
+                write!(f, "Peer expected to provide response, however sent {:?}", m)
+            }
         }
     }
 }
@@ -121,7 +124,7 @@ impl Connection {
     /// for a response from the connection. The message has to
     /// be primary because we can't just send response out of
     /// nowhere
-    /// 
+    ///
     /// Response returned together with sent request to provide
     /// context for handling the payload later (e.g. to know which
     /// vector does the received shard belongs to).
@@ -129,20 +132,22 @@ impl Connection {
         stream: NegotiatedSubstream,
         to_send: Primary,
     ) -> Result<(NegotiatedSubstream, Option<(Request, Response)>), HandlerError> {
-        let stream = SwarmComputerProtocol::send_message(stream, &Message::Primary(to_send.clone())).await
-            .map_err(HandlerError::Protocol)?;
+        let stream =
+            SwarmComputerProtocol::send_message(stream, &Message::Primary(to_send.clone()))
+                .await
+                .map_err(HandlerError::Protocol)?;
         match to_send {
             Primary::Simple(_) => Ok((stream, None)),
             Primary::Request(sent) => {
                 let (s, received) =
-                    SwarmComputerProtocol::receive_message::<NegotiatedSubstream, Message>(stream).await
+                    SwarmComputerProtocol::receive_message::<NegotiatedSubstream, Message>(stream)
+                        .await
                         .map_err(HandlerError::Protocol)?;
                 match received {
                     Message::Secondary(received) => Ok((s, Some((sent, received)))),
                     Message::Primary(_) => Err(HandlerError::ResponseExpected(received)),
                 }
-                
-            },
+            }
         }
     }
 }
@@ -152,14 +157,17 @@ enum OutgoingState<S> {
     Idle(S),
     /// Initiated sending request (optionally, get response) in stored future.
     /// Request is also returned as context for processing later.
-    Active{out_handler: BoxFuture<'static, Result<(S, Option<(Request, Response)>), HandlerError>>, timer: Pin<Box<Sleep>>},
+    Active {
+        out_handler: BoxFuture<'static, Result<(S, Option<(Request, Response)>), HandlerError>>,
+        timer: Pin<Box<Sleep>>,
+    },
     /// New substream is being instantiated
     Negotiating,
 }
 
 enum IncomingState<S> {
     /// Waiting for next message.
-    /// 
+    ///
     /// Represented as future that "borrows" the stream inside (not `&mut`, but the
     /// same logic: moves inside and moves back when done).
     /// On resolving, returns next message and the stream back. See
@@ -174,7 +182,7 @@ enum IncomingState<S> {
 
 impl<S> IncomingState<S>
 where
-    S: AsyncRead + Unpin + Send + 'static
+    S: AsyncRead + Unpin + Send + 'static,
 {
     fn idle_receive(stream: S) -> Self {
         IncomingState::Idle(SwarmComputerProtocol::receive_message(stream).boxed())
@@ -242,9 +250,7 @@ impl ConnectionHandler for Connection {
     fn inject_dial_upgrade_error(
         &mut self,
         _info: Self::OutboundOpenInfo,
-        error: ConnectionHandlerUpgrErr<
-            <Self::OutboundProtocol as OutboundUpgradeSend>::Error,
-        >,
+        error: ConnectionHandlerUpgrErr<<Self::OutboundProtocol as OutboundUpgradeSend>::Error>,
     ) {
         trace!("Error on upgrading connection: {}", error);
         self.outgoing = None;
@@ -309,7 +315,7 @@ impl ConnectionHandler for Connection {
                     Poll::Pending => {
                         trace!("Pending, skipping");
                         self.incoming = Some(IncomingState::Idle(fut));
-                    },
+                    }
                     Poll::Ready(Err(e)) => {
                         error!("Inbound request error: {:?}", e);
                         self.incoming = None;
@@ -319,40 +325,41 @@ impl ConnectionHandler for Connection {
                             Primary::Request(r) => {
                                 self.incoming = Some(IncomingState::PreparingResponse(stream));
                                 ConnectionSuccess::RequestReceived(r)
-                            },
+                            }
                             Primary::Simple(s) => {
                                 // Wait for the next Primary
                                 self.incoming = Some(IncomingState::idle_receive(stream));
                                 ConnectionSuccess::SimpleReceived(s)
-                            },
+                            }
                         };
-                        return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
-                            success
-                        )));
+                        return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(success)));
                     }
                 },
                 IncomingState::PreparingResponse(stream) => {
                     match self.response_queue.take() {
                         Some(resp) => {
                             let msg = Message::Secondary(resp);
-                            self.incoming = Some(IncomingState::SendingResponse(Box::pin(SwarmComputerProtocol::send_message(stream, msg))))
-                        },
+                            self.incoming = Some(IncomingState::SendingResponse(Box::pin(
+                                SwarmComputerProtocol::send_message(stream, msg),
+                            )))
+                        }
                         None => {
                             // Still waiting
                             self.incoming = Some(IncomingState::PreparingResponse(stream));
-                        },
+                        }
                     }
-                },
+                }
                 IncomingState::SendingResponse(mut fut) => match fut.poll_unpin(cx) {
                     Poll::Pending => {
                         trace!("Still sending response");
                         self.incoming = Some(IncomingState::SendingResponse(fut));
-                    },
+                    }
                     Poll::Ready(Err(e)) => {
                         debug!("Error sending a message");
                         self.incoming = None;
-                        self.error_queue.push_front(ConnectionError::Other(Box::new(e)))
-                    },
+                        self.error_queue
+                            .push_front(ConnectionError::Other(Box::new(e)))
+                    }
                     Poll::Ready(Ok(stream)) => {
                         self.incoming = Some(IncomingState::idle_receive(stream));
                     }
@@ -367,7 +374,10 @@ impl ConnectionHandler for Connection {
                 error!("Out failure: {:?}", error);
                 self.errors_in_row += 1;
                 if self.errors_in_row >= self.max_errors {
-                    debug!("Too many failures ({}). Closing connection.", self.errors_in_row);
+                    debug!(
+                        "Too many failures ({}). Closing connection.",
+                        self.errors_in_row
+                    );
                     return Poll::Ready(ConnectionHandlerEvent::Close(HandlerError::Connection(
                         error,
                     )));
@@ -377,19 +387,25 @@ impl ConnectionHandler for Connection {
             // Continue outgoing messages.
             trace!("Handling outbound channel");
             match self.outgoing.take() {
-                Some(OutgoingState::Active{out_handler: mut fut, mut timer}) => match fut.poll_unpin(cx) {
+                Some(OutgoingState::Active {
+                    out_handler: mut fut,
+                    mut timer,
+                }) => match fut.poll_unpin(cx) {
                     Poll::Pending => {
                         trace!("Pending, checking timeout");
                         match timer.as_mut().poll(cx) {
                             Poll::Ready(_) => {
                                 trace!("Timed out");
                                 self.error_queue.push_front(ConnectionError::Timeout)
-                            },
+                            }
                             Poll::Pending => {
                                 trace!("Still have time");
-                                self.outgoing = Some(OutgoingState::Active{out_handler: fut, timer});
+                                self.outgoing = Some(OutgoingState::Active {
+                                    out_handler: fut,
+                                    timer,
+                                });
                                 break;
-                            },
+                            }
                         }
                     }
                     Poll::Ready(Ok((stream, response))) => {
@@ -412,7 +428,7 @@ impl ConnectionHandler for Connection {
                     Some(m) => {
                         trace!("Adding new message to queue");
                         let timer = Box::pin(sleep(self.timeout));
-                        self.outgoing = Some(OutgoingState::Active{
+                        self.outgoing = Some(OutgoingState::Active {
                             out_handler: Self::handle_outgoing_message(stream, m).boxed(),
                             timer,
                         });

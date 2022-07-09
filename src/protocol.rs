@@ -1,11 +1,11 @@
 use futures::{future, io, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use libp2p::{core::UpgradeInfo, swarm::NegotiatedSubstream, InboundUpgrade, OutboundUpgrade};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tracing::{trace, debug};
 use std::{fmt::Display, iter};
+use tracing::{debug, trace};
 use void::Void;
 
-use crate::{types::{Shard, Vid, Graph}};
+use crate::types::{Graph, Shard, Vid};
 
 // TODO: do not forget to make static size of values small
 // (Clippy should report though)
@@ -18,7 +18,7 @@ pub enum Request {
 // (Clippy should report though)
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Response {
-    Shard(Option<Shard>)
+    Shard(Option<Shard>),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -126,7 +126,10 @@ impl SwarmComputerProtocol {
         debug!("Sending next message to the stream");
         trace!("Serializing");
         let serialized = bincode::serialize(&msg).map_err(Error::SerializationFailed)?;
-        let payload_size = serialized.len().try_into().map_err(|_| Error::LengthTooBig)?;
+        let payload_size = serialized
+            .len()
+            .try_into()
+            .map_err(|_| Error::LengthTooBig)?;
         trace!("Encoded length: {} bytes", payload_size);
         trace!("Sending length");
         stream
@@ -148,7 +151,7 @@ mod tests {
     enum TestMessage {
         Variant,
         VariantWithData(String),
-        NestedVariant(SomeEnum)
+        NestedVariant(SomeEnum),
     }
 
     #[derive(Serialize, Deserialize, PartialEq)]

@@ -6,8 +6,8 @@ use std::error::Error;
 mod behaviour;
 mod consensus;
 mod data_memory;
-mod instruction_memory;
 mod handler;
+mod instruction_memory;
 mod processor;
 mod protocol;
 mod types;
@@ -15,11 +15,8 @@ mod utils;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let format = tracing_subscriber::fmt::format()
-        .pretty();
-    tracing_subscriber::fmt()
-        .event_format(format)
-        .init();
+    let format = tracing_subscriber::fmt::format().pretty();
+    tracing_subscriber::fmt().event_format(format).init();
 
     let local_key = identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(local_key.public());
