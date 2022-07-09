@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    consensus::{DataDiscoverer, GraphConsensus},
+    consensus::{DataDiscoverer, GraphConsensus, Transaction},
     data_memory::DataMemory,
     handler::{Connection, ConnectionError, ConnectionReceived, IncomingEvent as HandlerEvent},
     processor::{Instruction, Processor},
@@ -20,7 +20,7 @@ use libp2p::{
 };
 use rand::Rng;
 use tokio::time::{sleep, Sleep};
-use tracing::{debug, error, warn, trace};
+use tracing::{debug, error, trace, warn};
 
 struct ConnectionEvent {
     peer_id: libp2p::PeerId,
@@ -42,14 +42,19 @@ where
     consensus_gossip_timer: Pin<Box<Sleep>>,
     consensus_gossip_timeout: Duration,
 
+    connection_events: VecDeque<ConnectionEvent>,
+    // TODO: timeout, ensure uniqueness/validity?
+    incoming_shards_buffer: HashMap<Vid, VecDeque<Shard>>,
+
+    // Temporary fields needed so that mock implementation would
+    // work (all below). TODO: remove/replace
+    is_main_node: bool,
+    data_to_distribute: VecDeque<Shard>,
+
     /// Execution status (to be removed/completely changed with
     /// actual consensus, it's a mock part)
     exec_state: ExecutionState<TDataMemory::Data, TDataMemory::Identifier>,
     pending_handler_events: VecDeque<(PeerId, HandlerEvent)>,
-
-    connection_events: VecDeque<ConnectionEvent>,
-    // TODO: timeout, ensure uniqueness/validity?
-    incoming_shards_buffer: HashMap<Vid, VecDeque<Shard>>,
 }
 
 enum ExecutionState<OP, ID> {
@@ -58,6 +63,8 @@ enum ExecutionState<OP, ID> {
     },
     WaitingInstruction,
 }
+
+pub struct NotMainNode;
 
 impl<C, D, P> Behaviour<C, D, P>
 where
@@ -69,6 +76,7 @@ where
         data_memory: D,
         _processor: P,
         consensus_gossip_timeout: Duration,
+        is_main_node: bool,
     ) -> Self {
         Self {
             consensus,
@@ -78,10 +86,12 @@ where
             rng: rand::thread_rng(),
             consensus_gossip_timer: Box::pin(sleep(consensus_gossip_timeout)),
             consensus_gossip_timeout,
-            exec_state: ExecutionState::WaitingInstruction,
-            pending_handler_events: VecDeque::new(),
             connection_events: VecDeque::new(),
             incoming_shards_buffer: HashMap::new(),
+            is_main_node,
+            data_to_distribute: VecDeque::new(),
+            exec_state: ExecutionState::WaitingInstruction,
+            pending_handler_events: VecDeque::new(),
         }
     }
 
@@ -104,6 +114,16 @@ where
                 "Tried to mark peer {} as disconnected when it's already marked that",
                 peer
             );
+        }
+    }
+
+    // TODO: remove, temp stuff for mock
+    pub fn add_data_to_distribute(&mut self, data: Shard) -> Result<(), NotMainNode> {
+        if self.is_main_node {
+            self.data_to_distribute.push_front(data);
+            Ok(())
+        } else {
+            Err(NotMainNode)
         }
     }
 
@@ -195,7 +215,7 @@ where
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,
-        _params: &mut impl libp2p::swarm::PollParameters,
+        params: &mut impl libp2p::swarm::PollParameters,
     ) -> std::task::Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
         // Maybe later split request handling, gossiping, processing into different behaviours
 
@@ -251,6 +271,16 @@ where
                             match self.consensus.update_graph(graph) {
                                 Ok(()) => {}
                                 Err(err) => warn!("Error updating graph with gossip: {:?}", err),
+                            }
+                        }
+                        ConnectionReceived::Simple(Simple::StoreShard((id, data))) => {
+                            if let Err(e) = self.data_memory.put(id.clone(), data) {
+                                warn!("Error saving shard locally: {:?}", e);
+                            } else if let Err(e) = self
+                                .consensus
+                                .push_tx(Transaction::Stored(id, *params.local_peer_id()))
+                            {
+                                warn!("Error announcing saving shard (may lead to \"dangling\" shard in local mem): {:?}", e);
                             }
                         }
                     },

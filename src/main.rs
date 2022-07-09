@@ -2,9 +2,9 @@ use futures::prelude::*;
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::swarm::{NetworkBehaviourEventProcess, Swarm, SwarmEvent};
 use libp2p::{identity, Multiaddr, NetworkBehaviour, PeerId};
-use tracing::{info, debug};
 use std::error::Error;
 use std::time::Duration;
+use tracing::{debug, info};
 use types::Shard;
 
 use crate::consensus::mock::MockConsensus;

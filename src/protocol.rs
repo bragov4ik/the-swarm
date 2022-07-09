@@ -11,6 +11,7 @@ use crate::types::{Graph, Shard, Vid};
 // (Clippy should report though)
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Request {
+    /// "Give me a shard for this ID pls"
     Shard(Vid),
 }
 
@@ -18,12 +19,18 @@ pub enum Request {
 // (Clippy should report though)
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Response {
+    /// Shard requested (or its absence: "Hey, I don't have a
+    /// shard for this ID")
     Shard(Option<Shard>),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Simple {
+    /// Graph state update according to consensus
     GossipGraph(Graph),
+
+    /// "Please save this shard for this vector locally"
+    StoreShard((Vid, Shard)),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
