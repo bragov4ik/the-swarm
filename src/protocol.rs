@@ -189,7 +189,7 @@ mod tests {
                 SwarmComputerProtocol::receive_message(&stream[..])
                     .await
                     .expect("read failed");
-            assert!(slice.len() == 0);
+            assert!(slice.is_empty());
             assert!(accepted_msg == m);
         }
     }
@@ -218,6 +218,6 @@ mod tests {
         }
 
         // We should have read everything
-        assert!(stream_left.len() == 0);
+        assert!(stream_left.is_empty());
     }
 }

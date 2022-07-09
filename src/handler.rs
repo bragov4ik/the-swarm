@@ -40,10 +40,10 @@ impl Display for ConnectionError {
 }
 
 #[derive(Debug)]
-pub enum ConnectionSuccess {
-    RequestReceived(Request),
-    ResponseReceived(Request, Response),
-    SimpleReceived(Simple),
+pub enum ConnectionReceived {
+    Request(Request),
+    Response(Request, Response),
+    Simple(Simple),
 }
 
 pub struct Connection {
@@ -149,13 +149,17 @@ impl Connection {
     }
 }
 
+type SendRequestHandler<S> =
+    BoxFuture<'static, Result<(S, Option<(Request, Response)>), HandlerError>>;
+
+// S means stream
 enum OutgoingState<S> {
     /// Waiting for requests to send
     Idle(S),
     /// Initiated sending request (optionally, get response) in stored future.
     /// Request is also returned as context for processing later.
     Active {
-        out_handler: BoxFuture<'static, Result<(S, Option<(Request, Response)>), HandlerError>>,
+        out_handler: SendRequestHandler<S>,
         timer: Pin<Box<Sleep>>,
     },
     /// New substream is being instantiated
@@ -199,7 +203,7 @@ pub enum IncomingEvent {
 
 impl ConnectionHandler for Connection {
     type InEvent = IncomingEvent;
-    type OutEvent = Result<ConnectionSuccess, ConnectionError>;
+    type OutEvent = Result<ConnectionReceived, ConnectionError>;
     type Error = HandlerError;
     type InboundProtocol = SwarmComputerProtocol;
     type OutboundProtocol = SwarmComputerProtocol;
@@ -321,12 +325,12 @@ impl ConnectionHandler for Connection {
                         let success = match msg {
                             Primary::Request(r) => {
                                 self.incoming = Some(IncomingState::PreparingResponse(stream));
-                                ConnectionSuccess::RequestReceived(r)
+                                ConnectionReceived::Request(r)
                             }
                             Primary::Simple(s) => {
                                 // Wait for the next Primary
                                 self.incoming = Some(IncomingState::idle_receive(stream));
-                                ConnectionSuccess::SimpleReceived(s)
+                                ConnectionReceived::Simple(s)
                             }
                         };
                         return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(success)));
@@ -411,7 +415,7 @@ impl ConnectionHandler for Connection {
                         self.outgoing = Some(OutgoingState::Idle(stream));
                         if let Some((req, resp)) = response {
                             return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
-                                ConnectionSuccess::ResponseReceived(req, resp),
+                                ConnectionReceived::Response(req, resp),
                             )));
                         }
                     }

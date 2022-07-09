@@ -1,21 +1,21 @@
 use futures::prelude::*;
 use libp2p::mdns::{Mdns, MdnsEvent};
-use libp2p::swarm::{Swarm, SwarmEvent, NetworkBehaviourEventProcess};
-use libp2p::{identity, Multiaddr, PeerId, NetworkBehaviour};
-use types::Shard;
+use libp2p::swarm::{NetworkBehaviourEventProcess, Swarm, SwarmEvent};
+use libp2p::{identity, Multiaddr, NetworkBehaviour, PeerId};
 use std::error::Error;
 use std::time::Duration;
+use types::Shard;
 
 use crate::consensus::mock::MockConsensus;
 use crate::data_memory::MemoryStorage;
 use crate::processor::mock::MockProcessor;
 use crate::types::Vid;
 
-mod node;
 mod consensus;
 mod data_memory;
 mod handler;
 mod instruction_memory;
+mod node;
 mod processor;
 mod protocol;
 mod types;
@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let consensus = MockConsensus::<Vid>::new();
     let data_memory = MemoryStorage::<Vid, Data>::new();
-    let processor = MockProcessor{};
+    let processor = MockProcessor {};
 
     #[derive(NetworkBehaviour)]
     #[behaviour(event_process = true)]
@@ -44,7 +44,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         main: node::Behaviour<MockConsensus<Vid>, MemoryStorage<Vid, i32>, MockProcessor>,
         mdns: Mdns,
     }
-    
 
     impl NetworkBehaviourEventProcess<()> for CombinedBehaviour {
         // Called when `node` produces an event.
@@ -70,12 +69,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
-    
-    let main_behaviour = node::Behaviour::new(consensus, data_memory, processor, Duration::from_secs(5));
+
+    let main_behaviour =
+        node::Behaviour::new(consensus, data_memory, processor, Duration::from_secs(5));
     let mdns = Mdns::new(Default::default()).await?;
 
     let behaviour = CombinedBehaviour {
-        main: main_behaviour, mdns
+        main: main_behaviour,
+        mdns,
     };
 
     let mut swarm = Swarm::new(transport, behaviour, local_peer_id);

@@ -8,7 +8,7 @@ use std::{
 use crate::{
     consensus::{DataDiscoverer, GraphConsensus},
     data_memory::DataMemory,
-    handler::{Connection, ConnectionError, ConnectionSuccess, IncomingEvent as HandlerEvent},
+    handler::{Connection, ConnectionError, ConnectionReceived, IncomingEvent as HandlerEvent},
     processor::{Instruction, Processor},
     protocol::{Primary, Request, Response, Simple},
     types::{Shard, Vid},
@@ -25,7 +25,7 @@ use tracing::{debug, error, warn};
 struct ConnectionEvent {
     peer_id: libp2p::PeerId,
     connection: libp2p::core::connection::ConnectionId,
-    event: Result<ConnectionSuccess, ConnectionError>,
+    event: Result<ConnectionReceived, ConnectionError>,
 }
 
 pub struct Behaviour<TConsensus, TDataMemory, TProcessor>
@@ -111,14 +111,15 @@ where
     fn get_random_peer(&mut self) -> Option<PeerId> {
         let connected = self.connected_peers.len();
         if connected == 0 {
-            return None
+            return None;
         }
         let range = 0..connected;
         let position = self.rng.gen_range(range);
         let mut i = self.connected_peers.iter().skip(position);
-        Some(i.next()
-            .expect("Shouldn't have skipped more than `len-1` elements")
-            .clone())
+        Some(
+            *i.next()
+                .expect("Shouldn't have skipped more than `len-1` elements"),
+        )
     }
 
     /// Update given entry if it's empty and shard (data) for corresponding id has arrived
@@ -127,7 +128,7 @@ where
         id: &Vid,
         entry: &mut Option<Shard>,
     ) {
-        if let Some(_) = entry {
+        if entry.is_some() {
             return;
         }
         let queue = match buf.get_mut(id) {
@@ -182,7 +183,7 @@ where
         &mut self,
         peer_id: libp2p::PeerId,
         connection: libp2p::core::connection::ConnectionId,
-        event: Result<ConnectionSuccess, ConnectionError>,
+        event: Result<ConnectionReceived, ConnectionError>,
     ) {
         self.connection_events.push_front(ConnectionEvent {
             peer_id,
@@ -220,7 +221,7 @@ where
             }) => {
                 match event {
                     Ok(success) => match success {
-                        ConnectionSuccess::RequestReceived(Request::Shard(id)) => {
+                        ConnectionReceived::Request(Request::Shard(id)) => {
                             debug!(
                                 "Received request for getting vector {:?} shard, responding",
                                 id
@@ -232,7 +233,7 @@ where
                                 event: HandlerEvent::SendResponse(Response::Shard(result)),
                             });
                         }
-                        ConnectionSuccess::ResponseReceived(
+                        ConnectionReceived::Response(
                             Request::Shard(id),
                             Response::Shard(shard),
                         ) => match shard {
@@ -246,7 +247,7 @@ where
                                 debug!("Received shard but vector {:?} is not reconstructed", id)
                             }
                         },
-                        ConnectionSuccess::SimpleReceived(Simple::GossipGraph(graph)) => {
+                        ConnectionReceived::Simple(Simple::GossipGraph(graph)) => {
                             match self.consensus.update_graph(graph) {
                                 Ok(()) => {}
                                 Err(err) => warn!("Error updating graph with gossip: {:?}", err),

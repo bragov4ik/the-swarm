@@ -28,7 +28,9 @@ pub struct MemoryStorage<K, V> {
 
 impl<K, V> MemoryStorage<K, V> {
     pub fn new() -> Self {
-        MemoryStorage { inner: HashMap::new() }
+        MemoryStorage {
+            inner: HashMap::new(),
+        }
     }
 }
 

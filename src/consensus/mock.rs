@@ -44,7 +44,7 @@ impl<OP: Clone> InstructionMemory for MockConsensus<OP> {
 
     fn next_instruction(&mut self) -> Option<Self::Instruction> {
         let res = self.instructions.get(self.instruction_pointer).cloned();
-        if let Some(_) = res {
+        if res.is_some() {
             self.instruction_pointer += 1;
         }
         res

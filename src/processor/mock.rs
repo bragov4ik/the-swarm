@@ -1,6 +1,6 @@
 use void::Void;
 
-use crate::types::{Vid, Shard};
+use crate::types::{Shard, Vid};
 
 use super::{Instruction, Processor};
 
