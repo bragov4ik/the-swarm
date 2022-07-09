@@ -9,6 +9,7 @@ use crate::{
     consensus::{DataDiscoverer, GraphConsensus, Transaction},
     data_memory::DataMemory,
     handler::{Connection, ConnectionError, ConnectionReceived, IncomingEvent as HandlerEvent},
+    instruction_memory::InstructionMemory,
     processor::{Instruction, Processor},
     protocol::{Primary, Request, Response, Simple},
     types::{Shard, Vid},
@@ -20,7 +21,7 @@ use libp2p::{
 };
 use rand::Rng;
 use tokio::time::{sleep, Sleep};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 struct ConnectionEvent {
     peer_id: libp2p::PeerId,
@@ -49,7 +50,10 @@ where
     // Temporary fields needed so that mock implementation would
     // work (all below). TODO: remove/replace
     is_main_node: bool,
-    data_to_distribute: VecDeque<Shard>,
+    data_to_distribute: VecDeque<(Vid, Shard)>,
+    distribute: bool,
+    instructions_to_execute: VecDeque<Instruction<Vid, Vid>>,
+    execute: bool,
 
     /// Execution status (to be removed/completely changed with
     /// actual consensus, it's a mock part)
@@ -78,13 +82,48 @@ enum ExecutionState<OP, ID> {
     WaitingInstruction,
 }
 
-pub struct NotMainNode;
+#[derive(Debug)]
+pub enum MockInitError {
+    NotMainNode,
+}
 
+// TODO: remove, temp stuff for mock
 impl<C, D, P> Behaviour<C, D, P>
 where
-    D: DataMemory,
-    C: DataDiscoverer<DataIdentifier = Vid, PeerAddr = PeerId>,
+    D: DataMemory<Identifier = Vid>,
+    C: InstructionMemory<Instruction = Instruction<D::Identifier, D::Identifier>>,
 {
+    pub fn add_data_to_distribute(&mut self, id: Vid, data: Shard) -> Result<(), MockInitError> {
+        if self.is_main_node {
+            self.data_to_distribute.push_front((id, data));
+            Ok(())
+        } else {
+            Err(MockInitError::NotMainNode)
+        }
+    }
+
+    pub fn add_instruction(
+        &mut self,
+        instruction: Instruction<D::Identifier, D::Identifier>,
+    ) -> Result<(), MockInitError> {
+        if self.is_main_node {
+            self.instructions_to_execute.push_front(instruction);
+            Ok(())
+        } else {
+            Err(MockInitError::NotMainNode)
+        }
+    }
+
+    pub fn allow_distribution(&mut self) {
+        self.distribute = true;
+    }
+
+    pub fn allow_execution(&mut self) {
+        self.execute = true;
+    }
+}
+
+impl<C, D: DataMemory, P> Behaviour<C, D, P> {
     pub fn new(
         consensus: C,
         data_memory: D,
@@ -104,6 +143,9 @@ where
             incoming_shards_buffer: HashMap::new(),
             is_main_node,
             data_to_distribute: VecDeque::new(),
+            distribute: false,
+            instructions_to_execute: VecDeque::new(),
+            execute: false,
             exec_state: ExecutionState::WaitingInstruction,
             pending_handler_events: VecDeque::new(),
         }
@@ -128,16 +170,6 @@ where
                 "Tried to mark peer {} as disconnected when it's already marked that",
                 peer
             );
-        }
-    }
-
-    // TODO: remove, temp stuff for mock
-    pub fn add_data_to_distribute(&mut self, data: Shard) -> Result<(), NotMainNode> {
-        if self.is_main_node {
-            self.data_to_distribute.push_front(data);
-            Ok(())
-        } else {
-            Err(NotMainNode)
         }
     }
 
@@ -176,7 +208,13 @@ where
             }
         }
     }
+}
 
+impl<C, D, P> Behaviour<C, D, P>
+where
+    D: DataMemory,
+    C: DataDiscoverer<DataIdentifier = Vid, PeerAddr = PeerId>,
+{
     fn place_data_request(&mut self, id: Vid) -> Result<(), NoPeerFound> {
         let locations = self.consensus.shard_locations(&id);
         if locations.is_empty() {
@@ -189,6 +227,23 @@ where
             ));
         }
         Ok(())
+    }
+}
+impl<C, D, P> Behaviour<C, D, P>
+where
+    C: GraphConsensus,
+    D: DataMemory<Identifier = Vid>,
+    D::Identifier: Clone,
+{
+    fn save_shard_locally(&mut self, id: D::Identifier, data: D::Data, local_id: PeerId) {
+        if let Err(e) = self.data_memory.put(id.clone(), data) {
+            warn!("Error saving shard locally: {:?}", e);
+        } else if let Err(e) = self.consensus.push_tx(Transaction::Stored(id, local_id)) {
+            warn!(
+                "Error announcing saving shard (may lead to \"dangling\" shard in local mem): {:?}",
+                e
+            );
+        }
     }
 }
 
@@ -288,14 +343,7 @@ where
                             }
                         }
                         ConnectionReceived::Simple(Simple::StoreShard((id, data))) => {
-                            if let Err(e) = self.data_memory.put(id.clone(), data) {
-                                warn!("Error saving shard locally: {:?}", e);
-                            } else if let Err(e) = self
-                                .consensus
-                                .push_tx(Transaction::Stored(id, *params.local_peer_id()))
-                            {
-                                warn!("Error announcing saving shard (may lead to \"dangling\" shard in local mem): {:?}", e);
-                            }
+                            self.save_shard_locally(id, data, *params.local_peer_id());
                         }
                     },
                     Err(ConnectionError::PeerUnsupported) => {
@@ -454,7 +502,53 @@ where
             }
         }
 
-        // TODO: add cli interaction
+        // TODO: remove (mock)
+        trace!("Checking if allowed to execute by user");
+        if self.execute {}
+
+        // TODO: remove, mock intitalization
+        trace!("Distribution of initial data");
+        if self.distribute {
+            if let Some(random_peer) = self.get_random_peer() {
+                debug!("Distributing data to random peers");
+                match self.data_to_distribute.pop_back() {
+                    Some((id, data)) => {
+                        debug!("Sending data with id {:?} to {}", id, random_peer);
+                        if let Err(e) = self
+                            .consensus
+                            .push_tx(Transaction::Stored(id.clone(), random_peer))
+                        {
+                            warn!("Error registering transaction about node holding data: {:?}\n Skipping..", e);
+                        } else {
+                            return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                                peer_id: random_peer,
+                                handler: NotifyHandler::Any,
+                                event: HandlerEvent::SendPrimary(Primary::Simple(
+                                    Simple::StoreShard((id, data)),
+                                )),
+                            });
+                        }
+                    }
+                    None => {
+                        info!("Finished distributing initial data");
+                        self.distribute = false;
+                    }
+                }
+            } else {
+                debug!("No peers found, saving locally");
+                match self.data_to_distribute.pop_back() {
+                    Some((id, data)) => {
+                        debug!("Saving data with id {:?}", id);
+                        self.save_shard_locally(id, data, *params.local_peer_id());
+                    }
+                    None => {
+                        info!("Finished distributing initial data");
+                        self.distribute = false;
+                    }
+                }
+            }
+        }
+
         Poll::Pending
     }
 }

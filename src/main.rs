@@ -6,7 +6,7 @@ use libp2p::{identity, Multiaddr, NetworkBehaviour, PeerId};
 use std::error::Error;
 use std::time::Duration;
 use tokio::io::{self, AsyncBufReadExt};
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 use types::Shard;
 
 use crate::consensus::mock::MockConsensus;
@@ -33,6 +33,9 @@ struct Args {
     /// Is this node a main one (that does all the stuff for demo)
     #[clap(short, long)]
     is_main: bool,
+
+    #[clap(long)]
+    generate_input: bool,
 
     #[clap(short, long)]
     dial_address: Option<String>,
@@ -118,11 +121,32 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // TODO: remove, for demo only
     if args.is_main {
         info!("This is the main node");
-        info!("Writing test input");
-        info!(
-            "Writing result: {:?}",
-            demo_input::test_write_input("src/demo_input/input.json")
-        );
+        if args.generate_input {
+            info!("Writing test input");
+            demo_input::test_write_input("src/demo_input/input.json")?;
+            info!("Wrote successfully");
+        } else {
+            info!("Reading test input");
+            let input = demo_input::read_input("src/demo_input/input.json").map_err(|e| {
+                error!("Failed to read input data: {:?}", e);
+                e
+            })?;
+            for (id, data) in input.data_layout {
+                swarm
+                    .behaviour_mut()
+                    .main
+                    .add_data_to_distribute(id, data)
+                    .expect("Just checked that node is main");
+            }
+            for instruction in input.instructions {
+                swarm
+                    .behaviour_mut()
+                    .main
+                    .add_instruction(instruction)
+                    .expect("Just checked that node is main");
+            }
+            info!("Read input and added it successfully!");
+        }
     }
 
     let mut stdin = io::BufReader::new(io::stdin()).lines();
@@ -135,6 +159,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     "read all" => {
                         let data = swarm.behaviour().main.read_all_local();
                         info!("All local state:\n{:?}", data);
+                    },
+                    "distribute" => {
+                        info!("Starting distributing the vectors");
+                        swarm.behaviour_mut().main.allow_distribution();
+                    },
+                    "execute" => {
+                        info!("Starting executing instructions");
+                        swarm.behaviour_mut().main.allow_execution();
                     },
                     other => info!("Can't recognize command '{}'", other),
                 }
