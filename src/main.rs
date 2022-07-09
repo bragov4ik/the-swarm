@@ -1,3 +1,4 @@
+use clap::Parser;
 use futures::prelude::*;
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::swarm::{NetworkBehaviourEventProcess, Swarm, SwarmEvent};
@@ -14,6 +15,7 @@ use crate::types::Vid;
 
 mod consensus;
 mod data_memory;
+mod demo_input;
 mod handler;
 mod instruction_memory;
 mod node;
@@ -24,10 +26,20 @@ mod utils;
 
 pub type Data = Shard;
 
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    /// Is this node a main one (that does all the stuff for demo)
+    #[clap(short, long)]
+    is_main: bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // let format = tracing_subscriber::fmt::format();
     tracing_subscriber::fmt::init();
+
+    let args = Args::parse();
 
     let local_key = identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(local_key.public());
@@ -71,8 +83,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let main_behaviour =
-        node::Behaviour::new(consensus, data_memory, processor, Duration::from_secs(5));
+    let main_behaviour = node::Behaviour::new(
+        consensus,
+        data_memory,
+        processor,
+        Duration::from_secs(5),
+        args.is_main,
+    );
     let mdns = Mdns::new(Default::default()).await?;
 
     let behaviour = CombinedBehaviour {
@@ -92,6 +109,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let remote: Multiaddr = addr.parse()?;
         swarm.dial(remote)?;
         info!("Dialed {}", addr)
+    }
+
+    // TODO: remove, for demo only
+    if args.is_main {
+        info!("This is the main node");
+        info!("Writing test input");
+        info!("Writing result: {:?}", demo_input::test_write_input("./demo_input/input.json"));
     }
 
     loop {
