@@ -84,8 +84,6 @@ pub struct Connection {
 pub enum HandlerError {
     Connection(ConnectionError),
     Protocol(ProtocolError),
-    // Tried to start request-response sequence with response
-    InitiatedResponse,
     // Peer sent `msg` instead of response
     ResponseExpected(Message),
 }
@@ -97,7 +95,6 @@ impl Display for HandlerError {
         match self {
             HandlerError::Connection(e) => write!(f, "{}", e),
             HandlerError::Protocol(e) => write!(f, "{}", e),
-            HandlerError::InitiatedResponse => write!(f, "Cannot send response before request"),
             HandlerError::ResponseExpected(m) => {
                 write!(f, "Peer expected to provide response, however sent {:?}", m)
             }

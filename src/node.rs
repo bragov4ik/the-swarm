@@ -28,13 +28,13 @@ struct ConnectionEvent {
     event: Result<ConnectionSuccess, ConnectionError>,
 }
 
-pub struct Node<TConsensus, TDataMemory, TProcessor>
+pub struct Behaviour<TConsensus, TDataMemory, TProcessor>
 where
     TDataMemory: DataMemory,
 {
     consensus: TConsensus,
     data_memory: TDataMemory,
-    processor: TProcessor,
+    _processor: TProcessor,
 
     /// Random gossip
     connected_peers: HashSet<PeerId>,
@@ -59,7 +59,7 @@ enum ExecutionState<OP, ID> {
     WaitingInstruction,
 }
 
-impl<C, D, P> Node<C, D, P>
+impl<C, D, P> Behaviour<C, D, P>
 where
     D: DataMemory,
     C: DataDiscoverer<DataIdentifier = Vid, PeerAddr = PeerId>,
@@ -67,13 +67,13 @@ where
     pub fn new(
         consensus: C,
         data_memory: D,
-        processor: P,
+        _processor: P,
         consensus_gossip_timeout: Duration,
     ) -> Self {
         Self {
             consensus,
             data_memory,
-            processor,
+            _processor,
             connected_peers: HashSet::new(),
             rng: rand::thread_rng(),
             consensus_gossip_timer: Box::pin(sleep(consensus_gossip_timeout)),
@@ -98,8 +98,8 @@ where
     }
 
     /// Notify behaviour that peer is disconnected
-    pub fn inject_peer_disconnected(&mut self, peer: PeerId) {
-        if !self.connected_peers.remove(&peer) {
+    pub fn inject_peer_disconnected(&mut self, peer: &PeerId) {
+        if !self.connected_peers.remove(peer) {
             warn!(
                 "Tried to mark peer {} as disconnected when it's already marked that",
                 peer
@@ -107,13 +107,18 @@ where
         }
     }
 
-    fn get_random_peer(&mut self) -> PeerId {
-        let range = 0..self.connected_peers.len();
+    /// None if none connected
+    fn get_random_peer(&mut self) -> Option<PeerId> {
+        let connected = self.connected_peers.len();
+        if connected == 0 {
+            return None
+        }
+        let range = 0..connected;
         let position = self.rng.gen_range(range);
         let mut i = self.connected_peers.iter().skip(position);
-        i.next()
+        Some(i.next()
             .expect("Shouldn't have skipped more than `len-1` elements")
-            .clone()
+            .clone())
     }
 
     /// Update given entry if it's empty and shard (data) for corresponding id has arrived
@@ -157,7 +162,7 @@ where
 struct NoPeerFound(Vid);
 
 impl<TConsensus, TDataMemory, TProcessor> NetworkBehaviour
-    for Node<TConsensus, TDataMemory, TProcessor>
+    for Behaviour<TConsensus, TDataMemory, TProcessor>
 where
     // Operator = Vid because we don't store actual data in the consensus
     TConsensus: GraphConsensus<Graph = crate::types::Graph, Operator = Vid>
@@ -189,7 +194,7 @@ where
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,
-        params: &mut impl libp2p::swarm::PollParameters,
+        _params: &mut impl libp2p::swarm::PollParameters,
     ) -> std::task::Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
         // Maybe later split request handling, gossiping, processing into different behaviours
 
@@ -277,13 +282,15 @@ where
                 // Time to send another one
                 let random_peer = self.get_random_peer();
                 self.consensus_gossip_timer = Box::pin(sleep(self.consensus_gossip_timeout));
-                return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                    peer_id: random_peer,
-                    handler: NotifyHandler::Any,
-                    event: HandlerEvent::SendPrimary(Primary::Simple(Simple::GossipGraph(
-                        self.consensus.get_graph(),
-                    ))),
-                });
+                if let Some(random_peer) = random_peer {
+                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                        peer_id: random_peer,
+                        handler: NotifyHandler::Any,
+                        event: HandlerEvent::SendPrimary(Primary::Simple(Simple::GossipGraph(
+                            self.consensus.get_graph(),
+                        ))),
+                    });
+                }
             }
             Poll::Pending => {
                 // Just wait

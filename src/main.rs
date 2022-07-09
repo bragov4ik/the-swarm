@@ -1,9 +1,17 @@
 use futures::prelude::*;
-use libp2p::swarm::{Swarm, SwarmEvent};
-use libp2p::{identity, ping, Multiaddr, PeerId};
+use libp2p::mdns::{Mdns, MdnsEvent};
+use libp2p::swarm::{Swarm, SwarmEvent, NetworkBehaviourEventProcess};
+use libp2p::{identity, Multiaddr, PeerId, NetworkBehaviour};
+use types::Shard;
 use std::error::Error;
+use std::time::Duration;
 
-mod behaviour;
+use crate::consensus::mock::MockConsensus;
+use crate::data_memory::MemoryStorage;
+use crate::processor::mock::MockProcessor;
+use crate::types::Vid;
+
+mod node;
 mod consensus;
 mod data_memory;
 mod handler;
@@ -12,6 +20,8 @@ mod processor;
 mod protocol;
 mod types;
 mod utils;
+
+pub type Data = Shard;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -24,12 +34,49 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let transport = libp2p::development_transport(local_key).await?;
 
-    // Create a ping network behaviour.
-    //
-    // For illustrative purposes, the ping protocol is configured to
-    // keep the connection alive, so a continuous sequence of pings
-    // can be observed.
-    let behaviour = ping::Behaviour::new(ping::Config::new().with_keep_alive(true));
+    let consensus = MockConsensus::<Vid>::new();
+    let data_memory = MemoryStorage::<Vid, Data>::new();
+    let processor = MockProcessor{};
+
+    #[derive(NetworkBehaviour)]
+    #[behaviour(event_process = true)]
+    struct CombinedBehaviour {
+        main: node::Behaviour<MockConsensus<Vid>, MemoryStorage<Vid, i32>, MockProcessor>,
+        mdns: Mdns,
+    }
+    
+
+    impl NetworkBehaviourEventProcess<()> for CombinedBehaviour {
+        // Called when `node` produces an event.
+        fn inject_event(&mut self, _: ()) {}
+    }
+
+    impl NetworkBehaviourEventProcess<MdnsEvent> for CombinedBehaviour {
+        // Called when `mdns` produces an event.
+        fn inject_event(&mut self, event: MdnsEvent) {
+            match event {
+                MdnsEvent::Discovered(list) => {
+                    for (peer, _) in list {
+                        self.main.inject_peer_connected(peer);
+                    }
+                }
+                MdnsEvent::Expired(list) => {
+                    for (peer, _) in list {
+                        if !self.mdns.has_node(&peer) {
+                            self.main.inject_peer_disconnected(&peer);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    let main_behaviour = node::Behaviour::new(consensus, data_memory, processor, Duration::from_secs(5));
+    let mdns = Mdns::new(Default::default()).await?;
+
+    let behaviour = CombinedBehaviour {
+        main: main_behaviour, mdns
+    };
 
     let mut swarm = Swarm::new(transport, behaviour, local_peer_id);
 

@@ -26,6 +26,12 @@ pub struct MemoryStorage<K, V> {
     inner: HashMap<K, V>,
 }
 
+impl<K, V> MemoryStorage<K, V> {
+    pub fn new() -> Self {
+        MemoryStorage { inner: HashMap::new() }
+    }
+}
+
 impl<K, V> DataMemory for MemoryStorage<K, V>
 where
     K: Hash + Eq + Clone,
