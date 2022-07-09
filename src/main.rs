@@ -115,7 +115,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if args.is_main {
         info!("This is the main node");
         info!("Writing test input");
-        info!("Writing result: {:?}", demo_input::test_write_input("./demo_input/input.json"));
+        info!(
+            "Writing result: {:?}",
+            demo_input::test_write_input("./demo_input/input.json")
+        );
     }
 
     loop {
