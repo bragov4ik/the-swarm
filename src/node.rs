@@ -387,8 +387,7 @@ where
                             self.consensus.get_graph(),
                         ))),
                     });
-                }
-                else {
+                } else {
                     debug!("Time to send gossip but no peers found, idling...");
                 }
             }
@@ -403,7 +402,8 @@ where
             ExecutionState::WaitingData { instruction } => {
                 let buf = &mut self.incoming_shards_buffer;
                 match instruction {
-                    Instruction::And((id1, first), (id2, second), _) | Instruction::Or((id1, first), (id2, second), _) => {
+                    Instruction::And((id1, first), (id2, second), _)
+                    | Instruction::Or((id1, first), (id2, second), _) => {
                         Self::retrieve_from_buf(buf, id1, first);
                         Self::retrieve_from_buf(buf, id2, second);
                     }
@@ -428,7 +428,10 @@ where
                 };
                 // TODO: remove print of whole instruction
                 if let Some(ready_instruction) = ready_instruction {
-                    debug!("Received all data, executing instruction {:?}", ready_instruction);
+                    debug!(
+                        "Received all data, executing instruction {:?}",
+                        ready_instruction
+                    );
                     match <TProcessor as Processor>::execute(&ready_instruction) {
                         Ok(res) => {
                             let dest_id = (*ready_instruction.get_dest()).clone();

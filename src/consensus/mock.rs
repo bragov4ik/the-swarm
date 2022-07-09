@@ -1,7 +1,7 @@
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
 use std::collections::{hash_map::Entry, HashMap};
+use tracing::debug;
 
 use crate::{instruction_memory::InstructionMemory, processor::Instruction, types::Vid};
 
@@ -58,7 +58,10 @@ impl<OP: Clone> GraphConsensus for MockConsensus<OP> {
 
     fn update_graph(&mut self, new_graph: Self::Graph) -> Result<(), Self::Error> {
         if new_graph.version > self.version {
-            debug!("Received version is newer ({}>{}), updating state", new_graph.version, self.version);
+            debug!(
+                "Received version is newer ({}>{}), updating state",
+                new_graph.version, self.version
+            );
             self.instructions
                 .extend_from_slice(&new_graph.instructions[self.instructions.len()..]);
             self.vec_locations = new_graph.vec_locations;
