@@ -26,8 +26,8 @@ pub type Data = Shard;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let format = tracing_subscriber::fmt::format();
-    tracing_subscriber::fmt().event_format(format).init();
+    // let format = tracing_subscriber::fmt::format();
+    tracing_subscriber::fmt::init();
 
     let local_key = identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(local_key.public());
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Tell the swarm to listen on all interfaces and a random, OS-assigned
     // port.
-    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+    swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
 
     // Dial the peer identified by the multi-address given as the second
     // command-line argument, if any.

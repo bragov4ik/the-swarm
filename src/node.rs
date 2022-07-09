@@ -20,7 +20,7 @@ use libp2p::{
 };
 use rand::Rng;
 use tokio::time::{sleep, Sleep};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, warn, trace};
 
 struct ConnectionEvent {
     peer_id: libp2p::PeerId,
@@ -199,7 +199,7 @@ where
     ) -> std::task::Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
         // Maybe later split request handling, gossiping, processing into different behaviours
 
-        debug!("Checking pending handler events to send");
+        trace!("Checking pending handler events to send");
         match self.pending_handler_events.pop_back() {
             Some((addr, e)) => {
                 return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
@@ -212,7 +212,7 @@ where
         }
 
         // Basically handling incoming requests & responses
-        debug!("Checking events from peer connections");
+        trace!("Checking events from peer connections");
         match self.connection_events.pop_back() {
             Some(ConnectionEvent {
                 peer_id,
@@ -277,7 +277,7 @@ where
             None => {}
         }
 
-        debug!("Checking periodic gossip");
+        trace!("Checking periodic gossip");
         match self.consensus_gossip_timer.as_mut().poll(cx) {
             Poll::Ready(_) => {
                 // Time to send another one
@@ -298,7 +298,7 @@ where
             }
         }
 
-        debug!("Distributing received shards");
+        trace!("Distributing received shards");
         match &mut self.exec_state {
             ExecutionState::WaitingInstruction => {}
             ExecutionState::WaitingData { instruction } => {
@@ -317,7 +317,7 @@ where
             }
         }
 
-        debug!("Checking computations scheduled");
+        trace!("Checking computations scheduled");
         match &self.exec_state {
             ExecutionState::WaitingData { instruction } => {
                 // `Some(<instruction>)` if all operands are retrieved and we're ready to execute it
