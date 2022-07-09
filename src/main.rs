@@ -5,6 +5,7 @@ use libp2p::swarm::{NetworkBehaviourEventProcess, Swarm, SwarmEvent};
 use libp2p::{identity, Multiaddr, NetworkBehaviour, PeerId};
 use std::error::Error;
 use std::time::Duration;
+use tokio::io::{self, AsyncBufReadExt};
 use tracing::{debug, info};
 use types::Shard;
 
@@ -120,15 +121,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Writing test input");
         info!(
             "Writing result: {:?}",
-            demo_input::test_write_input("./demo_input/input.json")
+            demo_input::test_write_input("src/demo_input/input.json")
         );
     }
 
+    let mut stdin = io::BufReader::new(io::stdin()).lines();
+
     loop {
-        match swarm.select_next_some().await {
-            SwarmEvent::NewListenAddr { address, .. } => info!("Listening on {:?}", address),
-            SwarmEvent::Behaviour(event) => info!("{:?}", event),
-            other => debug!("{:?}", other),
+        tokio::select! {
+            line = stdin.next_line() => {
+                let line = line?.expect("stdin closed");
+                match &line[..] {
+                    "read all" => {
+                        let data = swarm.behaviour().main.read_all_local();
+                        info!("All local state:\n{:?}", data);
+                    },
+                    other => info!("Can't recognize command '{}'", other),
+                }
+            }
+            event = swarm.select_next_some() => {
+                match event {
+                    SwarmEvent::NewListenAddr { address, .. } => info!("Listening on {:?}", address),
+                    SwarmEvent::Behaviour(event) => info!("{:?}", event),
+                    other => debug!("{:?}", other),
+                }
+            }
         }
     }
 }

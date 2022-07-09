@@ -1,6 +1,8 @@
 use std::{collections::HashMap, fmt::Debug, hash::Hash};
 use void::Void;
 
+use crate::node::DataMemoryReadAll;
+
 pub trait DataMemory {
     type Error: Debug;
     type Identifier;
@@ -57,5 +59,18 @@ where
 
     fn remove(&mut self, id: &Self::Identifier) -> Result<Option<Self::Data>, Self::Error> {
         Ok(self.inner.remove(id))
+    }
+}
+
+impl<K, V> DataMemoryReadAll<K, V> for MemoryStorage<K, V>
+where
+    K: Clone,
+    V: Clone,
+{
+    fn read_all(&self) -> Vec<(K, V)> {
+        self.inner
+            .iter()
+            .map(|(a, b)| (a.clone(), b.clone()))
+            .collect()
     }
 }

@@ -33,6 +33,9 @@ where
     Ok(data)
 }
 
+#[allow(dead_code)]
+/// Write some basic layout to path to see the format
+/// for generating other inputs
 pub fn test_write_input<P>(path: P) -> Result<(), Error>
 where
     P: AsRef<Path>,

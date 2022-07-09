@@ -57,6 +57,20 @@ where
     pending_handler_events: VecDeque<(PeerId, HandlerEvent)>,
 }
 
+pub trait DataMemoryReadAll<I, D> {
+    fn read_all(&self) -> Vec<(I, D)>;
+}
+
+// TODO: remove, temp
+impl<C, D, P> Behaviour<C, D, P>
+where
+    D: DataMemory + DataMemoryReadAll<Vid, Shard>,
+{
+    pub fn read_all_local(&self) -> Vec<(Vid, Shard)> {
+        self.data_memory.read_all()
+    }
+}
+
 enum ExecutionState<OP, ID> {
     WaitingData {
         instruction: Instruction<(ID, Option<OP>), ID>,
