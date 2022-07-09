@@ -2,6 +2,7 @@ use futures::prelude::*;
 use libp2p::mdns::{Mdns, MdnsEvent};
 use libp2p::swarm::{NetworkBehaviourEventProcess, Swarm, SwarmEvent};
 use libp2p::{identity, Multiaddr, NetworkBehaviour, PeerId};
+use tracing::{info, debug};
 use std::error::Error;
 use std::time::Duration;
 use types::Shard;
@@ -25,12 +26,12 @@ pub type Data = Shard;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let format = tracing_subscriber::fmt::format().pretty();
+    let format = tracing_subscriber::fmt::format();
     tracing_subscriber::fmt().event_format(format).init();
 
     let local_key = identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(local_key.public());
-    println!("Local peer id: {:?}", local_peer_id);
+    info!("Local peer id: {:?}", local_peer_id);
 
     let transport = libp2p::development_transport(local_key).await?;
 
@@ -90,14 +91,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if let Some(addr) = std::env::args().nth(1) {
         let remote: Multiaddr = addr.parse()?;
         swarm.dial(remote)?;
-        println!("Dialed {}", addr)
+        info!("Dialed {}", addr)
     }
 
     loop {
         match swarm.select_next_some().await {
-            SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {:?}", address),
-            SwarmEvent::Behaviour(event) => println!("{:?}", event),
-            _ => {}
+            SwarmEvent::NewListenAddr { address, .. } => info!("Listening on {:?}", address),
+            SwarmEvent::Behaviour(event) => info!("{:?}", event),
+            other => debug!("{:?}", other),
         }
     }
 }
