@@ -32,6 +32,9 @@ struct Args {
     /// Is this node a main one (that does all the stuff for demo)
     #[clap(short, long)]
     is_main: bool,
+
+    #[clap(short, long)]
+    dial_address: Option<String>,
 }
 
 #[tokio::main]
@@ -105,7 +108,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Dial the peer identified by the multi-address given as the second
     // command-line argument, if any.
-    if let Some(addr) = std::env::args().nth(1) {
+    if let Some(addr) = args.dial_address {
         let remote: Multiaddr = addr.parse()?;
         swarm.dial(remote)?;
         info!("Dialed {}", addr)
