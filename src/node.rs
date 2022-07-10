@@ -504,13 +504,16 @@ where
                     // Now we need to obtain data for computations. We try to get it from local storage,
                     // if unsuccessful, discover & send requests to corresponding nodes.
                     let state_instruction = match instruction {
-                        Instruction::And(i1, i2, dest) | Instruction::Or(i1, i2, dest) => {
-                            Instruction::And(
-                                (i1.clone(), self.data_memory.get(&i1).cloned()),
-                                (i2.clone(), self.data_memory.get(&i2).cloned()),
-                                dest,
-                            )
-                        }
+                        Instruction::And(i1, i2, dest) => Instruction::And(
+                            (i1.clone(), self.data_memory.get(&i1).cloned()),
+                            (i2.clone(), self.data_memory.get(&i2).cloned()),
+                            dest,
+                        ),
+                        Instruction::Or(i1, i2, dest) => Instruction::Or(
+                            (i1.clone(), self.data_memory.get(&i1).cloned()),
+                            (i2.clone(), self.data_memory.get(&i2).cloned()),
+                            dest,
+                        ),
                         Instruction::Not(i, dest) => {
                             Instruction::Not((i.clone(), self.data_memory.get(&i).cloned()), dest)
                         }
