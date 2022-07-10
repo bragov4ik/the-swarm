@@ -374,6 +374,9 @@ where
                                 debug!("Received shard for vector {:?}", id);
                                 if let Some(queue) = self.incoming_shards_buffer.get_mut(&id) {
                                     queue.push_front(shard)
+                                } else {
+                                    self.incoming_shards_buffer
+                                        .insert(id, VecDeque::from(vec![shard]));
                                 }
                             }
                             None => {
