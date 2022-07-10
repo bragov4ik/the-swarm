@@ -1,3 +1,33 @@
+//! Main behaviour of the network node.
+//!
+//! Assumes connected peer discovery running side by side and calling
+//! [Behaviour::inject_peer_discovered] [Behaviour::inject_peer_expired].
+//!
+//! ## Functions (approximate list):
+//! - Answer incoming requests
+//! - Random gossip of state (like in graph consensus, as template for future integration)
+//! - Instruction execution
+//! - Data discovery & requesting
+//!
+//! ## TODO
+//! - Actual consensus integration
+//! - Interactive data import
+//! - Better UX
+//! - (other TODOs in code)
+//!
+//! ## Mock implementation
+//!
+//! Right now implemented for demonstration. Since we don't have a
+//! proper consensus right now, there is one main node (with flag `is_main`)
+//! that distributes the initial data to the nodes. Then it adds
+//! predefined list of instructions (which is gossiped together with mock
+//! consensus state) and executes them, requesting missing data from
+//! the nodes.
+//!
+//! The secondary nodes also execute the instructions, therefore at the end
+//! initial vectors are spread randomly, and newly created ones are
+//! replicated on each node.
+
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     pin::Pin,
@@ -70,7 +100,7 @@ pub trait DataMemoryReadAll<I, D> {
     fn read_all(&self) -> Vec<(I, D)>;
 }
 
-// TODO: remove, temp
+// TODO: remove, demo
 impl<C, D, P> Behaviour<C, D, P>
 where
     D: DataMemory + DataMemoryReadAll<Vid, Shard>,
@@ -230,6 +260,7 @@ where
     D: DataMemory<Identifier = Vid>,
     D::Identifier: Clone,
 {
+    /// Save in memory and register the fact in consensus.
     fn save_shard_locally(&mut self, id: D::Identifier, data: D::Data, local_id: PeerId) {
         if let Err(e) = self.data_memory.put(id.clone(), data) {
             warn!("Error saving shard locally: {:?}", e);

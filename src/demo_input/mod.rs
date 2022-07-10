@@ -1,3 +1,5 @@
+//! Reading & parsing initial demo input.
+
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fmt::Display, path::Path};
 

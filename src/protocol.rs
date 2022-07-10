@@ -1,3 +1,12 @@
+//! Message passing protocol. Updating interface (format of messages sent
+//! across stream) should also increase protocol version number (see [`protocol_info`]).
+//!
+//! Used as protocol for libp2p [ConnectionHandler](https://docs.rs/libp2p/latest/libp2p/swarm/trait.ConnectionHandler.html)
+//!
+//! Also note that type `R` in corresponding `send_message` and `receive_message`
+//! pairs should be the same. Otherwise, deserialization on receiving side
+//! will fail.
+
 use futures::{future, io, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use libp2p::{core::UpgradeInfo, swarm::NegotiatedSubstream, InboundUpgrade, OutboundUpgrade};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

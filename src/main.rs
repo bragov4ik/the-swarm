@@ -23,7 +23,6 @@ mod node;
 mod processor;
 mod protocol;
 mod types;
-mod utils;
 
 pub type Data = Shard;
 
@@ -61,17 +60,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     #[derive(NetworkBehaviour)]
     #[behaviour(event_process = true)]
     struct CombinedBehaviour {
+        // Main logic
         main: node::Behaviour<MockConsensus<Vid>, MemoryStorage<Vid, i32>, MockProcessor>,
+        // MDNS performs LAN node discovery, allows not to manually write peer addresses
         mdns: Mdns,
     }
 
+    // Handle `main`-produced events.
     impl NetworkBehaviourEventProcess<()> for CombinedBehaviour {
-        // Called when `node` produces an event.
         fn inject_event(&mut self, _: ()) {}
     }
 
+    // Handle `mdns`-produced events.
     impl NetworkBehaviourEventProcess<MdnsEvent> for CombinedBehaviour {
-        // Called when `mdns` produces an event.
         fn inject_event(&mut self, event: MdnsEvent) {
             match event {
                 MdnsEvent::Discovered(list) => {
@@ -176,6 +177,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         info!("Starting executing instructions");
                         swarm.behaviour_mut().main.allow_execution();
                     },
+                    "help" => {
+                        info!("Available commands:
+read all - Print all data stored locally in the node
+distribute - Distribute initial data across nodes randomly
+execute - Add initial instructions to the execution schedule");
+                    }
                     other => info!("Can't recognize command '{}'", other),
                 }
             }

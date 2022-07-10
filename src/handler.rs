@@ -1,3 +1,9 @@
+//! Connection handler
+//!
+//! Performs tasks associated with particular connection,
+//! for example sends request and waits for a response (and
+//! reports it back). Basically, follows `Behaviour` orders.
+
 use futures::{future::BoxFuture, AsyncRead, Future, FutureExt};
 use libp2p::{
     core::{upgrade::NegotiationError, UpgradeError},
