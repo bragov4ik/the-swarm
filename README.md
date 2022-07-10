@@ -30,4 +30,6 @@ Different log levels can be turned on with `RUST_LOG` environment variable. Deta
 ## Future work
 - Complete rust graph consensus implementation (for example [this one](https://github.com/jaybutera/rust-hashgraph), there is no event ordering and the code is not optimized)
 - Integrate the consensus into the system using api in `consensus` module (details in documentation there)
-- ..?
+- Update `Behaviour` accordingly (e.g. remove code needed only for mock)
+- Add dynamic data/instruction upload
+- 
