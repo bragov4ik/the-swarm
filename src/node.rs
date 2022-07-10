@@ -16,7 +16,10 @@ use crate::{
 };
 use futures::Future;
 use libp2p::{
-    swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, dial_opts::{DialOpts, PeerCondition}},
+    swarm::{
+        dial_opts::{DialOpts, PeerCondition},
+        NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
+    },
     PeerId,
 };
 use rand::Rng;
@@ -284,7 +287,7 @@ where
         other_established: usize,
     ) {
         if other_established > 0 {
-            return
+            return;
         }
         if !self.connected_peers.insert(*peer_id) {
             warn!("Newly connecting peer was already in connected list, data is inconsistent.");
@@ -300,7 +303,7 @@ where
         remaining_established: usize,
     ) {
         if remaining_established > 0 {
-            return
+            return;
         }
         if !self.connected_peers.remove(peer_id) {
             warn!("Disconnecting peer wasn't in connected list, data is inconsistent.");
@@ -321,8 +324,11 @@ where
                 let opts = DialOpts::peer_id(peer)
                     .condition(PeerCondition::Disconnected)
                     .build();
-                return Poll::Ready(NetworkBehaviourAction::Dial { opts, handler: self.new_handler() })
-            },
+                return Poll::Ready(NetworkBehaviourAction::Dial {
+                    opts,
+                    handler: self.new_handler(),
+                });
+            }
             None => trace!("No new peers found"),
         }
 
@@ -417,7 +423,6 @@ where
                 self.consensus_gossip_timer = Box::pin(sleep(self.consensus_gossip_timeout));
                 if let Some(random_peer) = random_peer {
                     debug!("Sending gossip to peer {}", random_peer);
-                    debug!("It has addresses {:?}", self.addresses_of_peer(&random_peer));
                     return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                         peer_id: random_peer,
                         handler: NotifyHandler::Any,

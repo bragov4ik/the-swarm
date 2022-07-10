@@ -2,7 +2,7 @@ use futures::{future, io, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use libp2p::{core::UpgradeInfo, swarm::NegotiatedSubstream, InboundUpgrade, OutboundUpgrade};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{fmt::Display, iter};
-use tracing::{debug, trace};
+use tracing::{debug, instrument, trace};
 use void::Void;
 
 use crate::types::{Graph, Shard, Vid};
@@ -96,43 +96,49 @@ impl Display for Error {
 impl std::error::Error for Error {}
 
 impl SwarmComputerProtocol {
+    #[instrument(skip_all, fields(payload_size))]
     pub async fn receive_message<S, R>(mut stream: S) -> Result<(S, R), Error>
     where
         S: AsyncRead + Unpin,
-        R: DeserializeOwned,
+        R: DeserializeOwned + std::fmt::Debug,
     {
         debug!("Receiving next message from the stream");
         trace!("Getting length of the next message");
-        let mut message_length: [u8; 8] = [0; 8];
+        let mut payload_size: [u8; 8] = [0; 8];
         stream
-            .read_exact(&mut message_length)
+            .read_exact(&mut payload_size)
             .await
             .map_err(Error::Io)?;
         trace!("Received bytes successfully");
-        let message_length: usize = u64::from_be_bytes(message_length)
+        let payload_size: usize = u64::from_be_bytes(payload_size)
             .try_into()
             .map_err(|_| Error::LengthTooBig)?;
-        trace!("Receiving {} bytes of payload", message_length);
-        let mut buf = vec![0u8; message_length];
+        tracing::Span::current().record("payload_size", &payload_size);
+        trace!("Receiving {} bytes of payload", payload_size);
+        let mut buf = vec![0u8; payload_size];
         stream.read_exact(&mut buf).await.map_err(Error::Io)?;
         trace!("Deserializing the payload");
         let msg = bincode::deserialize(&buf).map_err(Error::SerializationFailed)?;
+        trace!("Message: {:?}", msg);
         debug!("Received the message successfully!");
         Ok((stream, msg))
     }
 
+    #[instrument(skip_all, fields(payload_size))]
     pub async fn send_message<S, R>(mut stream: S, msg: R) -> Result<S, Error>
     where
         S: AsyncWrite + Unpin,
-        R: Serialize,
+        R: Serialize + std::fmt::Debug,
     {
         debug!("Sending next message to the stream");
+        trace!("Message: {:?}", msg);
         trace!("Serializing");
         let serialized = bincode::serialize(&msg).map_err(Error::SerializationFailed)?;
         let payload_size = serialized
             .len()
             .try_into()
             .map_err(|_| Error::LengthTooBig)?;
+        tracing::Span::current().record("payload_size", &payload_size);
         trace!("Encoded length: {} bytes", payload_size);
         trace!("Sending length");
         stream
@@ -150,14 +156,14 @@ impl SwarmComputerProtocol {
 mod tests {
     use super::*;
 
-    #[derive(Serialize, Deserialize, PartialEq)]
+    #[derive(Serialize, Deserialize, PartialEq, Debug)]
     enum TestMessage {
         Variant,
         VariantWithData(String),
         NestedVariant(SomeEnum),
     }
 
-    #[derive(Serialize, Deserialize, PartialEq)]
+    #[derive(Serialize, Deserialize, PartialEq, Debug)]
     enum SomeEnum {
         A,
         B(i32),

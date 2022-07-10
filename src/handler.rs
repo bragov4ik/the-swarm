@@ -129,13 +129,17 @@ impl Connection {
         stream: NegotiatedSubstream,
         to_send: Primary,
     ) -> Result<(NegotiatedSubstream, Option<(Request, Response)>), HandlerError> {
-        let stream =
-            SwarmComputerProtocol::send_message(stream, Message::Primary(to_send.clone()))
-                .await
-                .map_err(HandlerError::Protocol)?;
+        debug!("Sending message");
+        let stream = SwarmComputerProtocol::send_message(stream, Message::Primary(to_send.clone()))
+            .await
+            .map_err(HandlerError::Protocol)?;
         match to_send {
-            Primary::Simple(_) => Ok((stream, None)),
+            Primary::Simple(_) => {
+                debug!("Sent simple message, no response is expected");
+                Ok((stream, None))
+            }
             Primary::Request(sent) => {
+                debug!("Sent request, waiting for response");
                 let (s, received) =
                     SwarmComputerProtocol::receive_message::<NegotiatedSubstream, Message>(stream)
                         .await
@@ -253,7 +257,7 @@ impl ConnectionHandler for Connection {
         _info: Self::OutboundOpenInfo,
         error: ConnectionHandlerUpgrErr<<Self::OutboundProtocol as OutboundUpgradeSend>::Error>,
     ) {
-        trace!("Error on upgrading connection: {}", error);
+        warn!("Error on upgrading connection: {}", error);
         self.outgoing = None;
 
         let error = match error {
@@ -310,24 +314,29 @@ impl ConnectionHandler for Connection {
         // Handle incoming requests
         trace!("Polling incoming handler's future");
         // Make sure to set corresponding `self.incoming` state in each match arm
-        if let Some(incoming_state) = self.incoming.take() {
+        // and that we break from the loop eventually
+        while let Some(incoming_state) = self.incoming.take() {
             match incoming_state {
                 IncomingState::Idle(mut fut) => match fut.poll_unpin(cx) {
                     Poll::Pending => {
                         trace!("Pending, skipping");
                         self.incoming = Some(IncomingState::Idle(fut));
+                        break;
                     }
                     Poll::Ready(Err(e)) => {
                         error!("Inbound request error: {:?}", e);
                         self.incoming = None;
+                        // will break by condition (None)
                     }
                     Poll::Ready(Ok((stream, msg))) => {
                         let res = match msg {
                             Message::Primary(Primary::Request(r)) => {
+                                debug!("Received request {:?}", r);
                                 self.incoming = Some(IncomingState::PreparingResponse(stream));
                                 Some(ConnectionReceived::Request(r))
                             }
                             Message::Primary(Primary::Simple(s)) => {
+                                debug!("Received simple {:?}", s);
                                 // Wait for the next Primary
                                 self.incoming = Some(IncomingState::idle_receive(stream));
                                 Some(ConnectionReceived::Simple(s))
@@ -341,19 +350,23 @@ impl ConnectionHandler for Connection {
                         if let Some(success) = res {
                             return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(success)));
                         }
+                        // will break by condition (None)
                     }
                 },
                 IncomingState::PreparingResponse(stream) => {
                     match self.response_queue.take() {
                         Some(resp) => {
+                            debug!("Sending response {:?}", resp);
                             let msg = Message::Secondary(resp);
                             self.incoming = Some(IncomingState::SendingResponse(Box::pin(
                                 SwarmComputerProtocol::send_message(stream, msg),
-                            )))
+                            )));
+                            // Need to poll the future, to register wake (If I my knowledge is correct)
                         }
                         None => {
                             // Still waiting
                             self.incoming = Some(IncomingState::PreparingResponse(stream));
+                            break;
                         }
                     }
                 }
@@ -361,15 +374,19 @@ impl ConnectionHandler for Connection {
                     Poll::Pending => {
                         trace!("Still sending response");
                         self.incoming = Some(IncomingState::SendingResponse(fut));
+                        break;
                     }
                     Poll::Ready(Err(e)) => {
                         debug!("Error sending a message");
                         self.incoming = None;
                         self.error_queue
-                            .push_front(ConnectionError::Other(Box::new(e)))
+                            .push_front(ConnectionError::Other(Box::new(e)));
+                        // will break by condition (None)
                     }
                     Poll::Ready(Ok(stream)) => {
+                        debug!("Response successfully sent!");
                         self.incoming = Some(IncomingState::idle_receive(stream));
+                        // Need to poll the future, to register wake (If I my knowledge is correct)
                     }
                 },
             }

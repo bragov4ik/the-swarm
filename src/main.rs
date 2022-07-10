@@ -1,7 +1,7 @@
 use clap::Parser;
 use futures::StreamExt;
 use libp2p::mdns::{Mdns, MdnsEvent};
-use libp2p::swarm::{NetworkBehaviourEventProcess, SwarmEvent, SwarmBuilder};
+use libp2p::swarm::{NetworkBehaviourEventProcess, SwarmBuilder, SwarmEvent};
 use libp2p::{identity, Multiaddr, NetworkBehaviour, PeerId};
 use std::error::Error;
 use std::time::Duration;
@@ -111,7 +111,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .executor(Box::new(|fut| {
                 tokio::spawn(fut);
             }))
-            .build()    
+            .build()
     };
 
     // Tell the swarm to listen on all interfaces and a random, OS-assigned
