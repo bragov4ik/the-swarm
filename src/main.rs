@@ -1,7 +1,7 @@
 use clap::Parser;
-use futures::prelude::*;
+use futures::StreamExt;
 use libp2p::mdns::{Mdns, MdnsEvent};
-use libp2p::swarm::{NetworkBehaviourEventProcess, Swarm, SwarmEvent};
+use libp2p::swarm::{NetworkBehaviourEventProcess, SwarmEvent, SwarmBuilder};
 use libp2p::{identity, Multiaddr, NetworkBehaviour, PeerId};
 use std::error::Error;
 use std::time::Duration;
@@ -76,13 +76,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
             match event {
                 MdnsEvent::Discovered(list) => {
                     for (peer, _) in list {
-                        self.main.inject_peer_connected(peer);
+                        self.main.inject_peer_discovered(peer);
                     }
                 }
                 MdnsEvent::Expired(list) => {
                     for (peer, _) in list {
                         if !self.mdns.has_node(&peer) {
-                            self.main.inject_peer_disconnected(&peer);
+                            self.main.inject_peer_expired(&peer);
                         }
                     }
                 }
@@ -104,11 +104,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         mdns,
     };
 
-    let mut swarm = Swarm::new(transport, behaviour, local_peer_id);
+    let mut swarm = {
+        SwarmBuilder::new(transport, behaviour, local_peer_id)
+            // We want the connection background tasks to be spawned
+            // onto the tokio runtime.
+            .executor(Box::new(|fut| {
+                tokio::spawn(fut);
+            }))
+            .build()    
+    };
 
     // Tell the swarm to listen on all interfaces and a random, OS-assigned
     // port.
-    swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
+    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
     // Dial the peer identified by the multi-address given as the second
     // command-line argument, if any.

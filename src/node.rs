@@ -16,7 +16,7 @@ use crate::{
 };
 use futures::Future;
 use libp2p::{
-    swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler},
+    swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, dial_opts::{DialOpts, PeerCondition}},
     PeerId,
 };
 use rand::Rng;
@@ -36,6 +36,8 @@ where
     consensus: TConsensus,
     data_memory: TDataMemory,
     _processor: TProcessor,
+
+    discovered_peers: VecDeque<PeerId>,
 
     /// Random gossip
     connected_peers: HashSet<PeerId>,
@@ -135,6 +137,7 @@ impl<C, D: DataMemory, P> Behaviour<C, D, P> {
             consensus,
             data_memory,
             _processor,
+            discovered_peers: VecDeque::new(),
             connected_peers: HashSet::new(),
             rng: rand::thread_rng(),
             consensus_gossip_timer: Box::pin(sleep(consensus_gossip_timeout)),
@@ -151,26 +154,15 @@ impl<C, D: DataMemory, P> Behaviour<C, D, P> {
         }
     }
 
-    /// Notify behaviour that peer is connected
-    pub fn inject_peer_connected(&mut self, new_peer: PeerId) {
-        if self.connected_peers.contains(&new_peer) {
-            warn!(
-                "Tried to set peer {} as connected when it is already in the list",
-                new_peer
-            );
-        } else {
-            self.connected_peers.insert(new_peer);
-        }
+    /// Notify behaviour that peer is discovered
+    pub fn inject_peer_discovered(&mut self, new_peer: PeerId) {
+        debug!("Discovered new peer {}", new_peer);
+        self.discovered_peers.push_front(new_peer);
     }
 
-    /// Notify behaviour that peer is disconnected
-    pub fn inject_peer_disconnected(&mut self, peer: &PeerId) {
-        if !self.connected_peers.remove(peer) {
-            warn!(
-                "Tried to mark peer {} as disconnected when it's already marked that",
-                peer
-            );
-        }
+    /// Notify behaviour that peer not discoverable and is expired according to MDNS
+    pub fn inject_peer_expired(&mut self, _peer: &PeerId) {
+        // Maybe add some logic later
     }
 
     /// None if none connected
@@ -266,6 +258,7 @@ where
     type OutEvent = ();
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
+        debug!("Creating new connection handler");
         Connection::new(10)
     }
 
@@ -282,12 +275,56 @@ where
         });
     }
 
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        _connection_id: &libp2p::core::connection::ConnectionId,
+        _endpoint: &libp2p::core::ConnectedPoint,
+        _failed_addresses: Option<&Vec<libp2p::Multiaddr>>,
+        other_established: usize,
+    ) {
+        if other_established > 0 {
+            return
+        }
+        if !self.connected_peers.insert(*peer_id) {
+            warn!("Newly connecting peer was already in connected list, data is inconsistent.");
+        }
+    }
+
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        _: &libp2p::core::connection::ConnectionId,
+        _: &libp2p::core::ConnectedPoint,
+        _: <Self::ConnectionHandler as libp2p::swarm::IntoConnectionHandler>::Handler,
+        remaining_established: usize,
+    ) {
+        if remaining_established > 0 {
+            return
+        }
+        if !self.connected_peers.remove(peer_id) {
+            warn!("Disconnecting peer wasn't in connected list, data is inconsistent.");
+        }
+    }
+
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,
         params: &mut impl libp2p::swarm::PollParameters,
     ) -> std::task::Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
         // Maybe later split request handling, gossiping, processing into different behaviours
+
+        trace!("Checking discovered peers to connect");
+        match self.discovered_peers.pop_back() {
+            Some(peer) => {
+                debug!("Discovered (new) peer, trying to negotiate protocol");
+                let opts = DialOpts::peer_id(peer)
+                    .condition(PeerCondition::Disconnected)
+                    .build();
+                return Poll::Ready(NetworkBehaviourAction::Dial { opts, handler: self.new_handler() })
+            },
+            None => trace!("No new peers found"),
+        }
 
         trace!("Checking pending handler events to send");
         match self.pending_handler_events.pop_back() {
@@ -380,6 +417,7 @@ where
                 self.consensus_gossip_timer = Box::pin(sleep(self.consensus_gossip_timeout));
                 if let Some(random_peer) = random_peer {
                     debug!("Sending gossip to peer {}", random_peer);
+                    debug!("It has addresses {:?}", self.addresses_of_peer(&random_peer));
                     return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                         peer_id: random_peer,
                         handler: NotifyHandler::Any,

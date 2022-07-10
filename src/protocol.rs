@@ -7,16 +7,12 @@ use void::Void;
 
 use crate::types::{Graph, Shard, Vid};
 
-// TODO: do not forget to make static size of values small
-// (Clippy should report though)
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Request {
     /// "Give me a shard for this ID pls"
     Shard(Vid),
 }
 
-// TODO: do not forget to make static size of values small
-// (Clippy should report though)
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Response {
     /// Shard requested (or its absence: "Hey, I don't have a

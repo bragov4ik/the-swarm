@@ -130,7 +130,7 @@ impl Connection {
         to_send: Primary,
     ) -> Result<(NegotiatedSubstream, Option<(Request, Response)>), HandlerError> {
         let stream =
-            SwarmComputerProtocol::send_message(stream, &Message::Primary(to_send.clone()))
+            SwarmComputerProtocol::send_message(stream, Message::Primary(to_send.clone()))
                 .await
                 .map_err(HandlerError::Protocol)?;
         match to_send {
@@ -173,7 +173,7 @@ enum IncomingState<S> {
     /// same logic: moves inside and moves back when done).
     /// On resolving, returns next message and the stream back. See
     /// `inject_fully_negotiated_inbound` and `poll` for details.
-    Idle(BoxFuture<'static, Result<(S, Primary), ProtocolError>>),
+    Idle(BoxFuture<'static, Result<(S, Message), ProtocolError>>),
     /// Received a request, waiting for response from the system to
     /// send it back
     PreparingResponse(S),
@@ -322,18 +322,25 @@ impl ConnectionHandler for Connection {
                         self.incoming = None;
                     }
                     Poll::Ready(Ok((stream, msg))) => {
-                        let success = match msg {
-                            Primary::Request(r) => {
+                        let res = match msg {
+                            Message::Primary(Primary::Request(r)) => {
                                 self.incoming = Some(IncomingState::PreparingResponse(stream));
-                                ConnectionReceived::Request(r)
+                                Some(ConnectionReceived::Request(r))
                             }
-                            Primary::Simple(s) => {
+                            Message::Primary(Primary::Simple(s)) => {
                                 // Wait for the next Primary
                                 self.incoming = Some(IncomingState::idle_receive(stream));
-                                ConnectionReceived::Simple(s)
+                                Some(ConnectionReceived::Simple(s))
+                            }
+                            Message::Secondary(s) => {
+                                warn!("Unexpected secondary (response) received, dropping");
+                                debug!("The unexpected message: {:?}", s);
+                                None
                             }
                         };
-                        return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(success)));
+                        if let Some(success) = res {
+                            return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(success)));
+                        }
                     }
                 },
                 IncomingState::PreparingResponse(stream) => {
