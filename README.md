@@ -20,9 +20,12 @@ In the main node you can execute commands `help`, `distribute`, `execute`, `read
 
 The intended flow:
 - launch nodes
+- switch to main node
 - run `distribute`
 - when finished run `execute`
 - when done run `read all` to confirm results
+
+The results should be the same as in `src/demo_input/expected_result.json`
 
 ## Debugging
 Different log levels can be turned on with `RUST_LOG` environment variable. Details see in [tracing-subscriber documentation](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/index.html#filtering-events-with-environment-variables).
