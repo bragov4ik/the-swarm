@@ -479,12 +479,12 @@ where
             ExecutionState::WaitingData { instruction } => {
                 let buf = &mut self.incoming_shards_buffer;
                 match instruction {
-                    Instruction::And((id1, first), (id2, second), _)
-                    | Instruction::Or((id1, first), (id2, second), _) => {
+                    Instruction::Dot((id1, first), (id2, second), _)
+                    | Instruction::Plus((id1, first), (id2, second), _) => {
                         Self::retrieve_from_buf(buf, id1, first);
                         Self::retrieve_from_buf(buf, id2, second);
                     }
-                    Instruction::Not((id, shard), _) => Self::retrieve_from_buf(buf, id, shard),
+                    Instruction::Inv((id, shard), _) => Self::retrieve_from_buf(buf, id, shard),
                 }
             }
         }
@@ -494,13 +494,13 @@ where
             ExecutionState::WaitingData { instruction } => {
                 // `Some(<instruction>)` if all operands are retrieved and we're ready to execute it
                 let ready_instruction = match instruction {
-                    Instruction::And((_, Some(o1)), (_, Some(o2)), dest) => {
-                        Some(Instruction::And(o1, o2, dest))
+                    Instruction::Dot((_, Some(o1)), (_, Some(o2)), dest) => {
+                        Some(Instruction::Dot(o1, o2, dest))
                     }
-                    Instruction::Or((_, Some(o1)), (_, Some(o2)), dest) => {
-                        Some(Instruction::Or(o1, o2, dest))
+                    Instruction::Plus((_, Some(o1)), (_, Some(o2)), dest) => {
+                        Some(Instruction::Plus(o1, o2, dest))
                     }
-                    Instruction::Not((_, Some(o)), dest) => Some(Instruction::Not(o, dest)),
+                    Instruction::Inv((_, Some(o)), dest) => Some(Instruction::Inv(o, dest)),
                     _ => None,
                 };
                 // TODO: remove print of whole instruction
@@ -535,26 +535,26 @@ where
                     // Now we need to obtain data for computations. We try to get it from local storage,
                     // if unsuccessful, discover & send requests to corresponding nodes.
                     let state_instruction = match instruction {
-                        Instruction::And(i1, i2, dest) => Instruction::And(
+                        Instruction::Dot(i1, i2, dest) => Instruction::Dot(
                             (i1.clone(), self.data_memory.get(&i1).cloned()),
                             (i2.clone(), self.data_memory.get(&i2).cloned()),
                             dest,
                         ),
-                        Instruction::Or(i1, i2, dest) => Instruction::Or(
+                        Instruction::Plus(i1, i2, dest) => Instruction::Plus(
                             (i1.clone(), self.data_memory.get(&i1).cloned()),
                             (i2.clone(), self.data_memory.get(&i2).cloned()),
                             dest,
                         ),
-                        Instruction::Not(i, dest) => {
-                            Instruction::Not((i.clone(), self.data_memory.get(&i).cloned()), dest)
+                        Instruction::Inv(i, dest) => {
+                            Instruction::Inv((i.clone(), self.data_memory.get(&i).cloned()), dest)
                         }
                     };
 
                     debug!("Scheduling data requests (if needed)");
                     // Schedule data requests, if needed
                     let success = match &state_instruction {
-                        Instruction::And((i1, opt1), (i2, opt2), _)
-                        | Instruction::Or((i1, opt1), (i2, opt2), _) => {
+                        Instruction::Dot((i1, opt1), (i2, opt2), _)
+                        | Instruction::Plus((i1, opt1), (i2, opt2), _) => {
                             let res1 = if opt1.is_none() {
                                 self.place_data_request(i1.clone())
                             } else {
@@ -567,7 +567,7 @@ where
                             };
                             res1.and(res2)
                         }
-                        Instruction::Not((i, opt), _) => {
+                        Instruction::Inv((i, opt), _) => {
                             if opt.is_none() {
                                 self.place_data_request(i.clone())
                             } else {

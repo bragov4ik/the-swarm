@@ -4,7 +4,7 @@ Swarm of heterogeneous computers with ability to perform distributed computation
 
 Right now does not use proper consensus, however the consensus can be easily integrated into the system through the defined API when implemented (see `consensus` module).
 
-Project was written in the scope of 2022 summer internship in Innopolis University. Schedule and linke reports can be found [here](https://hackmd.io/H1iKRHrdTiCnZi7QLK0wrw).
+Project was written in the scope of 2022 summer internship in Innopolis University. Schedule and linked reports can be found [here](https://hackmd.io/H1iKRHrdTiCnZi7QLK0wrw).
 
 ## Launch instructions
 All nodes should be instide LAN, since local area automatic peer discovery is used (with the help of MDNS component of libp2p library).
@@ -32,4 +32,5 @@ Different log levels can be turned on with `RUST_LOG` environment variable. Deta
 - Integrate the consensus into the system using api in `consensus` module (details in documentation there)
 - Update `Behaviour` accordingly (e.g. remove code needed only for mock)
 - Add dynamic data/instruction upload
-- 
+- Improve data ID system (to not add new data each instruction, for example)
+- Add proper data erasure coding

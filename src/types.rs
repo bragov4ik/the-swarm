@@ -10,9 +10,9 @@ pub struct Vid(pub u64);
 
 /// Type/struct that represents unit of data stored on nodes.
 /// Should be actual data shard (erasure coded) in the future, but
-/// right now for demonstration purposes, represents full number.
+/// right now for demonstration purposes, represents vector(array) of size 4.
 // #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub type Shard = i32;
+pub type Shard = [i32; 4];
 
 /// Graph representation that is passed on random gossip.
 pub type Graph = MockConsensus<Vid>;
