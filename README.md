@@ -7,7 +7,7 @@ Right now does not use proper consensus, however the consensus can be easily int
 Project was written in the scope of 2022 summer internship in Innopolis University. Schedule and linke reports can be found [here](https://hackmd.io/H1iKRHrdTiCnZi7QLK0wrw).
 
 ## Launch instructions
-All nodes should be instide LAN, since local area automatic peer discovery is used.
+All nodes should be instide LAN, since local area automatic peer discovery is used (with the help of MDNS component of libp2p library).
 
 ### Run main node
 `cargo run -- -i`
