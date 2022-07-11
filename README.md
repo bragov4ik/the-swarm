@@ -19,7 +19,7 @@ All nodes should be instide LAN, since local area automatic peer discovery is us
 In the main node you can execute commands `help`, `distribute`, `execute`, `read all`.
 
 The intended flow:
-- launch nodes
+- launch nodes ([help](https://github.com/bragov4ik/the-swarm/blob/master/README.md#launch-instructions))
 - switch to main node
 - run `distribute`
 - when finished run `execute`
