@@ -28,7 +28,7 @@ The intended flow:
 Different log levels can be turned on with `RUST_LOG` environment variable. Details see in [tracing-subscriber documentation](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/index.html#filtering-events-with-environment-variables).
 
 ## Future work
-- Complete rust graph consensus implementation (for example [this one](https://github.com/jaybutera/rust-hashgraph), there is no event ordering and the code is not optimized)
+- Complete rust graph consensus implementation (for example [this one](https://github.com/jaybutera/rust-hashgraph), there is no event ordering and the code is not optimized, I tried to solve it in [fork](https://github.com/bragov4ik/rust-hashgraph), but it would take too much time)
 - Integrate the consensus (for example) into the system using api in `consensus` module (details in documentation there)
 - Update `Behaviour` accordingly (e.g. remove code needed only for mock)
 - Add dynamic data/instruction upload
