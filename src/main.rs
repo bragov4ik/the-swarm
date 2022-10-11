@@ -1,7 +1,7 @@
 use clap::Parser;
 use futures::StreamExt;
 use libp2p::mdns::{Mdns, MdnsEvent};
-use libp2p::swarm::{NetworkBehaviourEventProcess, SwarmBuilder, SwarmEvent};
+use libp2p::swarm::{SwarmBuilder, SwarmEvent};
 use libp2p::{identity, Multiaddr, NetworkBehaviour, PeerId};
 use std::error::Error;
 use std::time::Duration;
@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let processor = MockProcessor {};
 
     #[derive(NetworkBehaviour)]
-    #[behaviour(event_process = true)]
+    #[behaviour(out_event = "CombinedBehaviourEvent")]
     struct CombinedBehaviour {
         // Main logic
         main: node::Behaviour<MockConsensus<Vid>, MemoryStorage<Vid, Data>, MockProcessor>,
@@ -66,28 +66,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
         mdns: Mdns,
     }
 
-    // Handle `main`-produced events.
-    impl NetworkBehaviourEventProcess<()> for CombinedBehaviour {
-        fn inject_event(&mut self, _: ()) {}
+    #[derive(Debug)]
+    // TODO: add Main event and check if applies
+    #[allow(clippy::large_enum_variant)]
+    enum CombinedBehaviourEvent {
+        Main(()),
+        Mdns(MdnsEvent),
     }
 
-    // Handle `mdns`-produced events.
-    impl NetworkBehaviourEventProcess<MdnsEvent> for CombinedBehaviour {
-        fn inject_event(&mut self, event: MdnsEvent) {
-            match event {
-                MdnsEvent::Discovered(list) => {
-                    for (peer, _) in list {
-                        self.main.inject_peer_discovered(peer);
-                    }
-                }
-                MdnsEvent::Expired(list) => {
-                    for (peer, _) in list {
-                        if !self.mdns.has_node(&peer) {
-                            self.main.inject_peer_expired(&peer);
-                        }
-                    }
-                }
-            }
+    impl From<()> for CombinedBehaviourEvent {
+        fn from(event: ()) -> Self {
+            CombinedBehaviourEvent::Main(event)
+        }
+    }
+
+    impl From<MdnsEvent> for CombinedBehaviourEvent {
+        fn from(event: MdnsEvent) -> Self {
+            CombinedBehaviourEvent::Mdns(event)
         }
     }
 
@@ -189,6 +184,22 @@ execute - Add initial instructions to the execution schedule");
             event = swarm.select_next_some() => {
                 match event {
                     SwarmEvent::NewListenAddr { address, .. } => info!("Listening on {:?}", address),
+                    SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(
+                        MdnsEvent::Discovered(list)
+                    )) => {
+                        for (peer, _) in list {
+                            swarm.behaviour_mut().main.inject_peer_discovered(peer);
+                        }
+                    }
+                    SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(
+                        MdnsEvent::Expired(list)
+                    )) => {
+                        for (peer, _) in list {
+                            if !swarm.behaviour_mut().mdns.has_node(&peer) {
+                                swarm.behaviour_mut().main.inject_peer_expired(&peer);
+                            }
+                        }
+                    }
                     SwarmEvent::Behaviour(event) => info!("{:?}", event),
                     other => debug!("{:?}", other),
                 }
