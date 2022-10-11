@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 pub(crate) mod mock;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub enum Instruction<OP, ID> {
-    // First operands, then id of result
-    Dot(OP, OP, ID),
-    Plus(OP, OP, ID),
-    Inv(OP, ID),
+pub enum Instruction<TOperandSrc, TOperandDest> {
+    // First operands, then result
+    Dot(TOperandSrc, TOperandSrc, TOperandDest),
+    Plus(TOperandSrc, TOperandSrc, TOperandDest),
+    Inv(TOperandSrc, TOperandDest),
 }
 
-impl<OP, ID> Instruction<OP, ID> {
+impl<TOperand, ID> Instruction<TOperand, ID> {
     pub fn get_dest(&self) -> &ID {
         match self {
             Instruction::Dot(_, _, id) => id,

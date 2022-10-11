@@ -30,28 +30,35 @@
 //! - Adding/getting instructions is basically adding/getting transaction of type
 //! instruction"
 
-use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 
-use crate::{instruction_memory::InstructionMemory, processor::Instruction, types::Vid};
+use crate::{instruction_memory::InstructionMemory, processor::Instruction};
 
 pub mod mock;
+mod graph;
 
 pub trait GraphConsensus:
-    InstructionMemory<Instruction = Instruction<Self::Operator, Vid>>
+    InstructionMemory<Instruction = Instruction<Self::Operand, Self::Operand>>
 {
-    type Operator;
-    type Graph;
+    /// Data that consensus operates on
+    type Operand;
+
+    /// Representation of peer locations
+    type Location;
+
+    /// Data that is transferred for peers sync.
+    /// Something like list of events that source peer knows.
+    type SyncPayload;
 
     /// Update local knowledge of the graph according to received gossip
-    fn update_graph(&mut self, new_graph: Self::Graph) -> Result<(), Self::Error>;
+    fn update_graph(&mut self, new_graph: Self::SyncPayload) -> Result<(), Self::Error>;
 
     /// Get graph state to send to peers
-    fn get_graph(&self) -> Self::Graph;
+    fn get_graph(&self) -> Self::SyncPayload;
 
     /// Add transaction to a queue - list of txs that will be added in next event
     /// created by this node.
-    fn push_tx(&mut self, tx: Transaction<Self::Operator>) -> Result<(), Self::Error>;
+    fn push_tx(&mut self, tx: Transaction<Self::Operand, Self::Location>) -> Result<(), Self::Error>;
 }
 
 pub trait DataDiscoverer {
@@ -66,9 +73,9 @@ pub trait DataDiscoverer {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub enum Transaction<OP> {
-    /// Indicates that author stores shard of vector with id `Vid`
-    Stored(Vid, PeerId),
+pub enum Transaction<TOperand, TLocation> {
+    /// Indicates that operand (data) is stored somewhere
+    Stored(TOperand, TLocation),
     /// Instruction is queued for execution by the author
-    ExecutionRequest(Instruction<OP, Vid>),
+    ExecutionRequest(Instruction<TOperand, TOperand>),
 }

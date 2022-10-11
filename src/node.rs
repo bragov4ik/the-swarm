@@ -110,9 +110,9 @@ where
     }
 }
 
-enum ExecutionState<OP, ID> {
+enum ExecutionState<TOperand, ID> {
     WaitingData {
-        instruction: Instruction<(ID, Option<OP>), ID>,
+        instruction: Instruction<(ID, Option<TOperand>), ID>,
     },
     WaitingInstruction,
 }
@@ -256,7 +256,7 @@ where
 }
 impl<C, D, P> Behaviour<C, D, P>
 where
-    C: GraphConsensus,
+    C: GraphConsensus<Operand = Vid, Location = PeerId>,
     D: DataMemory<Identifier = Vid>,
     D::Identifier: Clone,
 {
@@ -282,7 +282,7 @@ impl<TConsensus, TDataMemory, TProcessor> NetworkBehaviour
     for Behaviour<TConsensus, TDataMemory, TProcessor>
 where
     // Operator = Vid because we don't store actual data in the consensus
-    TConsensus: GraphConsensus<Graph = crate::types::Graph, Operator = Vid>
+    TConsensus: GraphConsensus<SyncPayload = crate::types::Graph, Operand = Vid, Location = PeerId>
         + DataDiscoverer<DataIdentifier = <TDataMemory as DataMemory>::Identifier, PeerAddr = PeerId>
         + 'static,
     TDataMemory: DataMemory<Identifier = Vid, Data = Shard> + 'static,

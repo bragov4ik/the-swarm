@@ -1,27 +1,27 @@
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use std::collections::{hash_map::Entry, HashMap};
+use std::{collections::{hash_map::Entry, HashMap}, hash::Hash};
 use tracing::debug;
 
-use crate::{instruction_memory::InstructionMemory, processor::Instruction, types::Vid};
+use crate::{instruction_memory::InstructionMemory, processor::Instruction};
 
 use super::{DataDiscoverer, GraphConsensus, Transaction};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct MockConsensus<OP> {
-    instructions: Vec<Instruction<OP, Vid>>,
+pub struct MockConsensus<TOperand: Hash + Eq> {
+    instructions: Vec<Instruction<TOperand, TOperand>>,
     #[serde(skip)]
     instruction_pointer: usize,
-    vec_locations: HashMap<Vid, PeerId>,
+    data_locations: HashMap<TOperand, PeerId>,
     version: u64,
 }
 
-impl<OP> MockConsensus<OP> {
+impl<TOperand: Hash + Eq> MockConsensus<TOperand> {
     pub fn new() -> Self {
         MockConsensus {
             instructions: Vec::new(),
             instruction_pointer: 0,
-            vec_locations: HashMap::new(),
+            data_locations: HashMap::new(),
             version: 0,
         }
     }
@@ -35,9 +35,9 @@ pub enum Error {
     VersionTooOld,
 }
 
-impl<OP: Clone> InstructionMemory for MockConsensus<OP> {
+impl<TOperand: Clone + Hash + Eq> InstructionMemory for MockConsensus<TOperand> {
     type Error = Error;
-    type Instruction = Instruction<OP, Vid>;
+    type Instruction = Instruction<TOperand, TOperand>;
 
     fn push_instruction(&mut self, instruction: Self::Instruction) -> Result<(), Self::Error> {
         self.push_tx(Transaction::ExecutionRequest(instruction))
@@ -52,11 +52,12 @@ impl<OP: Clone> InstructionMemory for MockConsensus<OP> {
     }
 }
 
-impl<OP: Clone> GraphConsensus for MockConsensus<OP> {
-    type Operator = OP;
-    type Graph = Self;
+impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
+    type Operand = TOperand;
+    type Location = PeerId;
+    type SyncPayload = Self;
 
-    fn update_graph(&mut self, new_graph: Self::Graph) -> Result<(), Self::Error> {
+    fn update_graph(&mut self, new_graph: Self::SyncPayload) -> Result<(), Self::Error> {
         if new_graph.version > self.version {
             debug!(
                 "Received version is newer ({}>{}), updating state",
@@ -64,7 +65,7 @@ impl<OP: Clone> GraphConsensus for MockConsensus<OP> {
             );
             self.instructions
                 .extend_from_slice(&new_graph.instructions[self.instructions.len()..]);
-            self.vec_locations = new_graph.vec_locations;
+            self.data_locations = new_graph.data_locations;
             self.version = new_graph.version;
             Ok(())
         } else {
@@ -72,18 +73,18 @@ impl<OP: Clone> GraphConsensus for MockConsensus<OP> {
         }
     }
 
-    fn get_graph(&self) -> Self::Graph {
+    fn get_graph(&self) -> Self::SyncPayload {
         self.clone()
     }
 
-    fn push_tx(&mut self, tx: Transaction<Self::Operator>) -> Result<(), Self::Error> {
+    fn push_tx(&mut self, tx: Transaction<Self::Operand, Self::Location>) -> Result<(), Self::Error> {
         match tx {
             Transaction::ExecutionRequest(i) => {
                 self.instructions.push(i);
                 self.version += 1;
                 Ok(())
             }
-            Transaction::Stored(vid, pid) => match self.vec_locations.entry(vid) {
+            Transaction::Stored(vid, pid) => match self.data_locations.entry(vid) {
                 Entry::Occupied(_) => Err(Error::VidInUse),
                 Entry::Vacant(e) => {
                     e.insert(pid);
@@ -95,14 +96,14 @@ impl<OP: Clone> GraphConsensus for MockConsensus<OP> {
     }
 }
 
-impl<OP> DataDiscoverer for MockConsensus<OP> {
-    type DataIdentifier = Vid;
+impl<TOperand: Hash + Eq> DataDiscoverer for MockConsensus<TOperand> {
+    type DataIdentifier = TOperand;
     type PeerAddr = PeerId;
 
     /// Returns places where the whole vector can be found. Should be 1 location max
     /// in the mock.
     fn shard_locations(&self, vector_id: &Self::DataIdentifier) -> Vec<Self::PeerAddr> {
-        self.vec_locations
+        self.data_locations
             .get(vector_id)
             .into_iter()
             .cloned()
