@@ -37,6 +37,8 @@ jobs:
         restore-keys: rust-${{ runner.os }}-
     - name: Check formatting
       run: cargo fmt --all --verbose --check
+    - name: Install protocol buffer compiler
+      run: apt install -y protobuf-compiler
     - run: cargo check
     - name: Clippy
       run: cargo clippy --all-features -- -D warnings
