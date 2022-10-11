@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) mod mock;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum Instruction<OP, ID> {
     // First operands, then id of result
     Dot(OP, OP, ID),

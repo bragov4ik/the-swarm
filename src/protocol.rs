@@ -16,20 +16,20 @@ use void::Void;
 
 use crate::types::{Graph, Shard, Vid};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum Request {
     /// "Give me a shard for this ID pls"
     Shard(Vid),
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum Response {
     /// Shard requested (or its absence: "Hey, I don't have a
     /// shard for this ID")
     Shard(Option<Shard>),
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum Simple {
     /// Graph state update according to consensus
     GossipGraph(Graph),
@@ -38,13 +38,13 @@ pub enum Simple {
     StoreShard((Vid, Shard)),
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum Primary {
     Request(Request),
     Simple(Simple),
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum Message {
     // Each request in primary should have corresponding response
     Primary(Primary),

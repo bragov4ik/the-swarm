@@ -65,7 +65,7 @@ pub trait DataDiscoverer {
     fn shard_locations(&self, vector_id: &Self::DataIdentifier) -> Vec<Self::PeerAddr>;
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum Transaction<OP> {
     /// Indicates that author stores shard of vector with id `Vid`
     Stored(Vid, PeerId),

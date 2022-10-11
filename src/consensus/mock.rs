@@ -7,7 +7,7 @@ use crate::{instruction_memory::InstructionMemory, processor::Instruction, types
 
 use super::{DataDiscoverer, GraphConsensus, Transaction};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct MockConsensus<OP> {
     instructions: Vec<Instruction<OP, Vid>>,
     #[serde(skip)]
