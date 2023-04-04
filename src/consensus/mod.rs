@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use crate::{instruction_memory::InstructionMemory, processor::Instruction};
 
 pub mod mock;
-mod graph;
+// mod graph;
 
 pub trait GraphConsensus:
     InstructionMemory<Instruction = Instruction<Self::Operand, Self::Operand>>
