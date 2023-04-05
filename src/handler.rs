@@ -10,7 +10,7 @@ use libp2p::{
     swarm::{
         handler::{
             AddressChange, ConnectionEvent, DialUpgradeError, FullyNegotiatedInbound,
-            FullyNegotiatedOutbound, InboundUpgradeSend, ListenUpgradeError, OutboundUpgradeSend,
+            FullyNegotiatedOutbound, ListenUpgradeError,
         },
         ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, NegotiatedSubstream,
         SubstreamProtocol,

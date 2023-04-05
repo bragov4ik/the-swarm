@@ -49,7 +49,7 @@ use libp2p::{
     swarm::{
         derive_prelude::ConnectionEstablished,
         dial_opts::{DialOpts, PeerCondition},
-        ConnectionClosed, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, THandlerInEvent,
+        ConnectionClosed, NetworkBehaviour, NotifyHandler, THandlerInEvent,
         ToSwarm,
     },
     PeerId,
@@ -293,9 +293,28 @@ where
     type ConnectionHandler = Connection;
     type OutEvent = ();
 
-    fn new_handler(&mut self) -> Self::ConnectionHandler {
-        debug!("Creating new connection handler");
-        Connection::new(10)
+    // TODO: check https://github.com/libp2p/rust-libp2p/blob/master/swarm/CHANGELOG.md#0420
+    // maybe do separate behaviour for managing connections
+    fn handle_established_inbound_connection(
+        &mut self,
+        _connection_id: libp2p::swarm::ConnectionId,
+        _peer: PeerId,
+        _local_addr: &libp2p::Multiaddr,
+        _remote_addr: &libp2p::Multiaddr,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        debug!("Creating new inbound connection handler");
+        Ok(Connection::new(10))
+    }
+
+    fn handle_established_outbound_connection(
+        &mut self,
+        _connection_id: libp2p::swarm::ConnectionId,
+        _peer: PeerId,
+        _addr: &libp2p::Multiaddr,
+        _role_override: libp2p::core::Endpoint,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        debug!("Creating new inbound connection handler");
+        Ok(Connection::new(10))
     }
 
     fn poll(
@@ -312,7 +331,7 @@ where
                 let opts = DialOpts::peer_id(peer)
                     .condition(PeerCondition::Disconnected)
                     .build();
-                return Poll::Ready(NetworkBehaviourAction::Dial { opts });
+                return Poll::Ready(ToSwarm::Dial { opts });
             }
             None => trace!("No new peers found"),
         }
@@ -320,7 +339,7 @@ where
         trace!("Checking pending handler events to send");
         match self.pending_handler_events.pop_back() {
             Some((addr, e)) => {
-                return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                return Poll::Ready(ToSwarm::NotifyHandler {
                     peer_id: addr,
                     handler: NotifyHandler::Any,
                     event: e,
@@ -345,7 +364,7 @@ where
                                 id
                             );
                             let result = self.data_memory.get(&id).cloned();
-                            return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                            return Poll::Ready(ToSwarm::NotifyHandler {
                                 peer_id,
                                 handler: NotifyHandler::One(connection),
                                 event: HandlerEvent::SendResponse(Response::Shard(result)),
@@ -381,7 +400,7 @@ where
                         }
                     },
                     Err(ConnectionError::PeerUnsupported) => {
-                        return Poll::Ready(NetworkBehaviourAction::CloseConnection {
+                        return Poll::Ready(ToSwarm::CloseConnection {
                             peer_id,
                             connection: libp2p::swarm::CloseConnection::One(connection),
                         })
@@ -393,7 +412,7 @@ where
                     Err(ConnectionError::Other(err)) => {
                         // Fail fast
                         error!("Connection to {} returned error {:?}", peer_id, err);
-                        return Poll::Ready(NetworkBehaviourAction::CloseConnection {
+                        return Poll::Ready(ToSwarm::CloseConnection {
                             peer_id,
                             connection: libp2p::swarm::CloseConnection::One(connection),
                         });
@@ -411,7 +430,7 @@ where
                 self.consensus_gossip_timer = Box::pin(sleep(self.consensus_gossip_timeout));
                 if let Some(random_peer) = random_peer {
                     debug!("Sending gossip to peer {}", random_peer);
-                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                    return Poll::Ready(ToSwarm::NotifyHandler {
                         peer_id: random_peer,
                         handler: NotifyHandler::Any,
                         event: HandlerEvent::SendPrimary(Primary::Simple(Simple::GossipGraph(
@@ -610,9 +629,9 @@ where
         match event {
             libp2p::swarm::FromSwarm::ConnectionEstablished(ConnectionEstablished {
                 peer_id,
-                connection_id,
-                endpoint,
-                failed_addresses,
+                connection_id: _,
+                endpoint: _,
+                failed_addresses: _,
                 other_established,
             }) => {
                 if other_established > 0 {
@@ -624,9 +643,9 @@ where
             }
             libp2p::swarm::FromSwarm::ConnectionClosed(ConnectionClosed {
                 peer_id,
-                connection_id,
-                endpoint,
-                handler,
+                connection_id: _,
+                endpoint: _,
+                handler: _,
                 remaining_established,
             }) => {
                 if remaining_established > 0 {
