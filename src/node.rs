@@ -49,8 +49,7 @@ use libp2p::{
     swarm::{
         derive_prelude::ConnectionEstablished,
         dial_opts::{DialOpts, PeerCondition},
-        ConnectionClosed, NetworkBehaviour, NotifyHandler, THandlerInEvent,
-        ToSwarm,
+        ConnectionClosed, NetworkBehaviour, NotifyHandler, THandlerInEvent, ToSwarm,
     },
     PeerId,
 };
@@ -72,6 +71,7 @@ where
     data_memory: TDataMemory,
     _processor: TProcessor,
 
+    local_peer_id: PeerId,
     discovered_peers: VecDeque<PeerId>,
 
     /// Random gossip
@@ -167,11 +167,13 @@ impl<C, D: DataMemory, P> Behaviour<C, D, P> {
         _processor: P,
         consensus_gossip_timeout: Duration,
         is_main_node: bool,
+        local_peer_id: PeerId,
     ) -> Self {
         Self {
             consensus,
             data_memory,
             _processor,
+            local_peer_id,
             discovered_peers: VecDeque::new(),
             connected_peers: HashSet::new(),
             rng: rand::thread_rng(),
@@ -320,7 +322,7 @@ where
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,
-        params: &mut impl libp2p::swarm::PollParameters,
+        _params: &mut impl libp2p::swarm::PollParameters,
     ) -> std::task::Poll<ToSwarm<Self::OutEvent, THandlerInEvent<Self>>> {
         // Maybe later split request handling, gossiping, processing into different behaviours
 
@@ -396,7 +398,7 @@ where
                         }
                         ConnectionReceived::Simple(Simple::StoreShard((id, data))) => {
                             debug!("Received request to save shard of data id {:?}", id);
-                            self.save_shard_locally(id, data, *params.local_peer_id());
+                            self.save_shard_locally(id, data, self.local_peer_id);
                         }
                     },
                     Err(ConnectionError::PeerUnsupported) => {
@@ -612,7 +614,7 @@ where
                 match self.data_to_distribute.pop_back() {
                     Some((id, data)) => {
                         debug!("Saving data with id {:?}", id);
-                        self.save_shard_locally(id, data, *params.local_peer_id());
+                        self.save_shard_locally(id, data, self.local_peer_id);
                     }
                     None => {
                         info!("Finished distributing initial data");

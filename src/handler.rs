@@ -239,21 +239,21 @@ impl ConnectionHandler for Connection {
         >,
     ) {
         match event {
-            ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound { protocol, info }) => {
+            ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
+                protocol,
+                info: _,
+            }) => {
                 trace!("Inbound protocol negotiated, setting up channel");
                 self.incoming = Some(IncomingState::idle_receive(protocol));
             }
             ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
                 protocol,
-                info,
+                info: _,
             }) => {
                 trace!("Outbound protocol negotiated, setting up channel");
                 self.outgoing = Some(OutgoingState::Idle(protocol));
             }
-            ConnectionEvent::AddressChange(AddressChange { new_address }) => {
-                todo!();
-            }
-            ConnectionEvent::DialUpgradeError(DialUpgradeError { info, error }) => {
+            ConnectionEvent::DialUpgradeError(DialUpgradeError { info: _, error }) => {
                 warn!("Error on upgrading connection: {}", error);
                 self.outgoing = None;
 
@@ -270,6 +270,9 @@ impl ConnectionHandler for Connection {
                     e => ConnectionError::Other(Box::new(e)),
                 };
                 self.error_queue.push_front(error);
+            }
+            ConnectionEvent::AddressChange(AddressChange { new_address }) => {
+                todo!();
             }
             ConnectionEvent::ListenUpgradeError(ListenUpgradeError { info, error }) => {}
         }

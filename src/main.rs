@@ -92,6 +92,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         processor,
         Duration::from_secs(5),
         args.is_main,
+        local_peer_id,
     );
     let mdns = mdns::async_io::Behaviour::new(Default::default(), local_peer_id)?;
 
