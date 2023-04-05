@@ -272,9 +272,14 @@ impl ConnectionHandler for Connection {
                 self.error_queue.push_front(error);
             }
             ConnectionEvent::AddressChange(AddressChange { new_address }) => {
-                todo!();
+                debug!("Address of remote changed to {}", new_address);
             }
-            ConnectionEvent::ListenUpgradeError(ListenUpgradeError { info, error }) => {}
+            ConnectionEvent::ListenUpgradeError(ListenUpgradeError { info: _, error }) => {
+                warn!(
+                    "Failed to upgrade inbound stream to this(?) protocol: {}",
+                    error
+                )
+            }
         }
     }
 
