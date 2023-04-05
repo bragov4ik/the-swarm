@@ -8,7 +8,10 @@ use futures::{future::BoxFuture, AsyncRead, Future, FutureExt};
 use libp2p::{
     core::{upgrade::NegotiationError, UpgradeError},
     swarm::{
-        handler::{InboundUpgradeSend, OutboundUpgradeSend},
+        handler::{
+            AddressChange, ConnectionEvent, DialUpgradeError, FullyNegotiatedInbound,
+            FullyNegotiatedOutbound, InboundUpgradeSend, ListenUpgradeError, OutboundUpgradeSend,
+        },
         ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, NegotiatedSubstream,
         SubstreamProtocol,
     },
@@ -226,25 +229,53 @@ impl ConnectionHandler for Connection {
         SubstreamProtocol::new(SwarmComputerProtocol, ())
     }
 
-    fn inject_fully_negotiated_inbound(
+    fn on_connection_event(
         &mut self,
-        protocol: <Self::InboundProtocol as InboundUpgradeSend>::Output,
-        _info: Self::InboundOpenInfo,
+        event: ConnectionEvent<
+            Self::InboundProtocol,
+            Self::OutboundProtocol,
+            Self::InboundOpenInfo,
+            Self::OutboundOpenInfo,
+        >,
     ) {
-        trace!("Inbound protocol negotiated, setting up channel");
-        self.incoming = Some(IncomingState::idle_receive(protocol));
+        match event {
+            ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound { protocol, info }) => {
+                trace!("Inbound protocol negotiated, setting up channel");
+                self.incoming = Some(IncomingState::idle_receive(protocol));
+            }
+            ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
+                protocol,
+                info,
+            }) => {
+                trace!("Outbound protocol negotiated, setting up channel");
+                self.outgoing = Some(OutgoingState::Idle(protocol));
+            }
+            ConnectionEvent::AddressChange(AddressChange { new_address }) => {
+                todo!();
+            }
+            ConnectionEvent::DialUpgradeError(DialUpgradeError { info, error }) => {
+                warn!("Error on upgrading connection: {}", error);
+                self.outgoing = None;
+
+                let error = match error {
+                    ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(
+                        NegotiationError::Failed,
+                    )) => {
+                        self.state = State::PeerUnsupported {
+                            event_emitted: false,
+                        };
+                        return;
+                    }
+                    ConnectionHandlerUpgrErr::Timeout => ConnectionError::Timeout,
+                    e => ConnectionError::Other(Box::new(e)),
+                };
+                self.error_queue.push_front(error);
+            }
+            ConnectionEvent::ListenUpgradeError(ListenUpgradeError { info, error }) => {}
+        }
     }
 
-    fn inject_fully_negotiated_outbound(
-        &mut self,
-        protocol: <Self::OutboundProtocol as OutboundUpgradeSend>::Output,
-        _info: Self::OutboundOpenInfo,
-    ) {
-        trace!("Outbound protocol negotiated, setting up channel");
-        self.outgoing = Some(OutgoingState::Idle(protocol));
-    }
-
-    fn inject_event(&mut self, event: Self::InEvent) {
+    fn on_behaviour_event(&mut self, event: Self::InEvent) {
         trace!("Received event {:?}", event);
         match event {
             IncomingEvent::SendResponse(r) => {
@@ -256,27 +287,6 @@ impl ConnectionHandler for Connection {
             }
             IncomingEvent::SendPrimary(p) => self.primary_queue.push_front(p),
         }
-    }
-
-    fn inject_dial_upgrade_error(
-        &mut self,
-        _info: Self::OutboundOpenInfo,
-        error: ConnectionHandlerUpgrErr<<Self::OutboundProtocol as OutboundUpgradeSend>::Error>,
-    ) {
-        warn!("Error on upgrading connection: {}", error);
-        self.outgoing = None;
-
-        let error = match error {
-            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(NegotiationError::Failed)) => {
-                self.state = State::PeerUnsupported {
-                    event_emitted: false,
-                };
-                return;
-            }
-            ConnectionHandlerUpgrErr::Timeout => ConnectionError::Timeout,
-            e => ConnectionError::Other(Box::new(e)),
-        };
-        self.error_queue.push_front(error);
     }
 
     fn connection_keep_alive(&self) -> libp2p::swarm::KeepAlive {

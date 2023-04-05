@@ -47,8 +47,10 @@ use crate::{
 use futures::Future;
 use libp2p::{
     swarm::{
+        derive_prelude::ConnectionEstablished,
         dial_opts::{DialOpts, PeerCondition},
-        NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
+        ConnectionClosed, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, THandlerInEvent,
+        ToSwarm,
     },
     PeerId,
 };
@@ -58,7 +60,7 @@ use tracing::{debug, error, info, trace, warn};
 
 struct ConnectionEvent {
     peer_id: libp2p::PeerId,
-    connection: libp2p::core::connection::ConnectionId,
+    connection: libp2p::swarm::ConnectionId,
     event: Result<ConnectionReceived, ConnectionError>,
 }
 
@@ -296,56 +298,11 @@ where
         Connection::new(10)
     }
 
-    fn inject_event(
-        &mut self,
-        peer_id: libp2p::PeerId,
-        connection: libp2p::core::connection::ConnectionId,
-        event: Result<ConnectionReceived, ConnectionError>,
-    ) {
-        self.connection_events.push_front(ConnectionEvent {
-            peer_id,
-            connection,
-            event,
-        });
-    }
-
-    fn inject_connection_established(
-        &mut self,
-        peer_id: &PeerId,
-        _connection_id: &libp2p::core::connection::ConnectionId,
-        _endpoint: &libp2p::core::ConnectedPoint,
-        _failed_addresses: Option<&Vec<libp2p::Multiaddr>>,
-        other_established: usize,
-    ) {
-        if other_established > 0 {
-            return;
-        }
-        if !self.connected_peers.insert(*peer_id) {
-            warn!("Newly connecting peer was already in connected list, data is inconsistent.");
-        }
-    }
-
-    fn inject_connection_closed(
-        &mut self,
-        peer_id: &PeerId,
-        _: &libp2p::core::connection::ConnectionId,
-        _: &libp2p::core::ConnectedPoint,
-        _: <Self::ConnectionHandler as libp2p::swarm::IntoConnectionHandler>::Handler,
-        remaining_established: usize,
-    ) {
-        if remaining_established > 0 {
-            return;
-        }
-        if !self.connected_peers.remove(peer_id) {
-            warn!("Disconnecting peer wasn't in connected list, data is inconsistent.");
-        }
-    }
-
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,
         params: &mut impl libp2p::swarm::PollParameters,
-    ) -> std::task::Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
+    ) -> std::task::Poll<ToSwarm<Self::OutEvent, THandlerInEvent<Self>>> {
         // Maybe later split request handling, gossiping, processing into different behaviours
 
         trace!("Checking discovered peers to connect");
@@ -355,10 +312,7 @@ where
                 let opts = DialOpts::peer_id(peer)
                     .condition(PeerCondition::Disconnected)
                     .build();
-                return Poll::Ready(NetworkBehaviourAction::Dial {
-                    opts,
-                    handler: self.new_handler(),
-                });
+                return Poll::Ready(NetworkBehaviourAction::Dial { opts });
             }
             None => trace!("No new peers found"),
         }
@@ -620,7 +574,7 @@ where
                         {
                             warn!("Error registering transaction about node holding data: {:?}\n Skipping..", e);
                         } else {
-                            return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                            return Poll::Ready(ToSwarm::NotifyHandler {
                                 peer_id: random_peer,
                                 handler: NotifyHandler::Any,
                                 event: HandlerEvent::SendPrimary(Primary::Simple(
@@ -650,5 +604,61 @@ where
         }
 
         Poll::Pending
+    }
+
+    fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<Self::ConnectionHandler>) {
+        match event {
+            libp2p::swarm::FromSwarm::ConnectionEstablished(ConnectionEstablished {
+                peer_id,
+                connection_id,
+                endpoint,
+                failed_addresses,
+                other_established,
+            }) => {
+                if other_established > 0 {
+                    return;
+                }
+                if !self.connected_peers.insert(peer_id) {
+                    warn!("Newly connecting peer was already in connected list, data is inconsistent.");
+                }
+            }
+            libp2p::swarm::FromSwarm::ConnectionClosed(ConnectionClosed {
+                peer_id,
+                connection_id,
+                endpoint,
+                handler,
+                remaining_established,
+            }) => {
+                if remaining_established > 0 {
+                    return;
+                }
+                if !self.connected_peers.remove(&peer_id) {
+                    warn!("Disconnecting peer wasn't in connected list, data is inconsistent.");
+                }
+            }
+            libp2p::swarm::FromSwarm::AddressChange(_)
+            | libp2p::swarm::FromSwarm::DialFailure(_)
+            | libp2p::swarm::FromSwarm::ListenFailure(_)
+            | libp2p::swarm::FromSwarm::NewListener(_)
+            | libp2p::swarm::FromSwarm::NewListenAddr(_)
+            | libp2p::swarm::FromSwarm::ExpiredListenAddr(_)
+            | libp2p::swarm::FromSwarm::ListenerError(_)
+            | libp2p::swarm::FromSwarm::ListenerClosed(_)
+            | libp2p::swarm::FromSwarm::NewExternalAddr(_)
+            | libp2p::swarm::FromSwarm::ExpiredExternalAddr(_) => (),
+        }
+    }
+
+    fn on_connection_handler_event(
+        &mut self,
+        peer_id: libp2p::PeerId,
+        connection: libp2p::swarm::ConnectionId,
+        event: libp2p::swarm::THandlerOutEvent<Self>,
+    ) {
+        self.connection_events.push_front(ConnectionEvent {
+            peer_id,
+            connection,
+            event,
+        });
     }
 }

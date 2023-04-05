@@ -58,7 +58,10 @@ pub trait GraphConsensus:
 
     /// Add transaction to a queue - list of txs that will be added in next event
     /// created by this node.
-    fn push_tx(&mut self, tx: Transaction<Self::Operand, Self::Location>) -> Result<(), Self::Error>;
+    fn push_tx(
+        &mut self,
+        tx: Transaction<Self::Operand, Self::Location>,
+    ) -> Result<(), Self::Error>;
 }
 
 pub trait DataDiscoverer {

@@ -1,6 +1,9 @@
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use std::{collections::{hash_map::Entry, HashMap}, hash::Hash};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    hash::Hash,
+};
 use tracing::debug;
 
 use crate::{instruction_memory::InstructionMemory, processor::Instruction};
@@ -77,7 +80,10 @@ impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
         self.clone()
     }
 
-    fn push_tx(&mut self, tx: Transaction<Self::Operand, Self::Location>) -> Result<(), Self::Error> {
+    fn push_tx(
+        &mut self,
+        tx: Transaction<Self::Operand, Self::Location>,
+    ) -> Result<(), Self::Error> {
         match tx {
             Transaction::ExecutionRequest(i) => {
                 self.instructions.push(i);

@@ -1,8 +1,8 @@
 use clap::Parser;
 use futures::StreamExt;
-use libp2p::mdns::{Mdns, MdnsEvent};
-use libp2p::swarm::{SwarmBuilder, SwarmEvent};
-use libp2p::{identity, Multiaddr, NetworkBehaviour, PeerId};
+use libp2p::mdns;
+use libp2p::swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent};
+use libp2p::{identity, Multiaddr, PeerId};
 use std::error::Error;
 use std::time::Duration;
 use tokio::io::{self, AsyncBufReadExt};
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         // Main logic
         main: node::Behaviour<MockConsensus<Vid>, MemoryStorage<Vid, Data>, MockProcessor>,
         // MDNS performs LAN node discovery, allows not to manually write peer addresses
-        mdns: Mdns,
+        mdns: mdns::async_io::Behaviour,
     }
 
     #[derive(Debug)]
@@ -71,7 +71,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     #[allow(clippy::large_enum_variant)]
     enum CombinedBehaviourEvent {
         Main(()),
-        Mdns(MdnsEvent),
+        Mdns(mdns::Event),
     }
 
     impl From<()> for CombinedBehaviourEvent {
@@ -80,8 +80,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    impl From<MdnsEvent> for CombinedBehaviourEvent {
-        fn from(event: MdnsEvent) -> Self {
+    impl From<mdns::Event> for CombinedBehaviourEvent {
+        fn from(event: mdns::Event) -> Self {
             CombinedBehaviourEvent::Mdns(event)
         }
     }
@@ -93,22 +93,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Duration::from_secs(5),
         args.is_main,
     );
-    let mdns = Mdns::new(Default::default()).await?;
+    let mdns = mdns::async_io::Behaviour::new(Default::default(), local_peer_id)?;
 
     let behaviour = CombinedBehaviour {
         main: main_behaviour,
         mdns,
     };
 
-    let mut swarm = {
-        SwarmBuilder::new(transport, behaviour, local_peer_id)
-            // We want the connection background tasks to be spawned
-            // onto the tokio runtime.
-            .executor(Box::new(|fut| {
-                tokio::spawn(fut);
-            }))
-            .build()
-    };
+    // We want the connection background tasks to be spawned
+    // onto the tokio runtime.
+    let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
 
     // Tell the swarm to listen on all interfaces and a random, OS-assigned
     // port.
@@ -185,14 +179,14 @@ execute - Add initial instructions to the execution schedule");
                 match event {
                     SwarmEvent::NewListenAddr { address, .. } => info!("Listening on {:?}", address),
                     SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(
-                        MdnsEvent::Discovered(list)
+                        mdns::Event::Discovered(list)
                     )) => {
                         for (peer, _) in list {
                             swarm.behaviour_mut().main.inject_peer_discovered(peer);
                         }
                     }
                     SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(
-                        MdnsEvent::Expired(list)
+                        mdns::Event::Expired(list)
                     )) => {
                         for (peer, _) in list {
                             if !swarm.behaviour_mut().mdns.has_node(&peer) {
