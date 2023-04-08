@@ -11,21 +11,23 @@ use super::{DataDiscoverer, GraphConsensus, Transaction};
 use crate::{instruction_memory::InstructionMemory, processor::Instruction};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct MockConsensus<TOperand: Hash + Eq> {
-    instructions: Vec<Instruction<TOperand>>,
+pub struct MockConsensus<TOperandId: Hash + Eq> {
+    instructions: Vec<Instruction<TOperandId, TOperandId>>,
     #[serde(skip)]
     instruction_pointer: usize,
-    data_locations: HashMap<TOperand, PeerId>,
+    data_locations: HashMap<TOperandId, PeerId>,
     version: u64,
+    self_id: PeerId,
 }
 
 impl<TOperand: Hash + Eq> MockConsensus<TOperand> {
-    pub fn new() -> Self {
+    pub fn new(self_id: PeerId) -> Self {
         MockConsensus {
             instructions: Vec::new(),
             instruction_pointer: 0,
             data_locations: HashMap::new(),
             version: 0,
+            self_id,
         }
     }
 }
@@ -38,9 +40,9 @@ pub enum Error {
     VersionTooOld,
 }
 
-impl<TOperand: Clone + Hash + Eq> InstructionMemory for MockConsensus<TOperand> {
+impl<TOperandId: Clone + Hash + Eq> InstructionMemory for MockConsensus<TOperandId> {
     type Error = Error;
-    type Instruction = Instruction<TOperand>;
+    type Instruction = Instruction<TOperandId, TOperandId>;
 
     fn push_instruction(&mut self, instruction: Self::Instruction) -> Result<(), Self::Error> {
         self.push_tx(Transaction::Execute(instruction))
@@ -57,6 +59,7 @@ impl<TOperand: Clone + Hash + Eq> InstructionMemory for MockConsensus<TOperand> 
 
 impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
     type OperandId = TOperand;
+    type OperandPieceId = ();
     type PeerId = PeerId;
     type SyncPayload = Self;
 
@@ -79,7 +82,7 @@ impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
         }
     }
 
-    fn get_graph(&self) -> Self::SyncPayload {
+    fn get_sync(&self, _sync_for: &Self::PeerId) -> Self::SyncPayload {
         self.clone()
     }
 
@@ -93,10 +96,10 @@ impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
                 self.version += 1;
                 Ok(())
             }
-            Transaction::Stored(vid, pid) => match self.data_locations.entry(vid) {
+            Transaction::Stored(vid, _piece_id) => match self.data_locations.entry(vid) {
                 Entry::Occupied(_) => Err(Error::VidInUse),
                 Entry::Vacant(e) => {
-                    e.insert(pid);
+                    e.insert(self.self_id);
                     self.version += 1;
                     Ok(())
                 }

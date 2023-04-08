@@ -40,7 +40,7 @@ use crate::{
     data_memory::DataMemory,
     handler::{Connection, ConnectionError, ConnectionReceived, IncomingEvent as HandlerEvent},
     instruction_memory::InstructionMemory,
-    processor::{Instruction, Processor},
+    processor::{Instruction, Operation, Processor, UnaryOp},
     protocol::{Primary, Request, Response, Simple},
     types::{Shard, Vid},
 };
@@ -89,12 +89,12 @@ where
     is_main_node: bool,
     data_to_distribute: VecDeque<(Vid, Shard)>,
     distribute: bool,
-    instructions_to_execute: VecDeque<Instruction<Vid>>,
+    instructions_to_execute: VecDeque<Instruction<Vid, Vid>>,
     execute: bool,
 
     /// Execution status (to be removed/completely changed with
     /// actual consensus, it's a mock part)
-    exec_state: ExecutionState<TDataMemory::Identifier>,
+    exec_state: ExecutionState<TDataMemory::Identifier, TDataMemory::Data>,
     pending_handler_events: VecDeque<(PeerId, HandlerEvent)>,
 }
 
@@ -112,9 +112,9 @@ where
     }
 }
 
-enum ExecutionState<TOperandId> {
+enum ExecutionState<TOperandId, TOperand> {
     WaitingData {
-        instruction: Instruction<TOperandId>,
+        instruction: Instruction<(TOperandId, Option<TOperand>), TOperandId>,
     },
     WaitingInstruction,
 }
@@ -128,7 +128,7 @@ pub enum MockInitError {
 impl<C, D, P> Behaviour<C, D, P>
 where
     D: DataMemory<Identifier = Vid>,
-    C: InstructionMemory<Instruction = Instruction<D::Identifier>>,
+    C: InstructionMemory<Instruction = Instruction<D::Identifier, D::Identifier>>,
 {
     pub fn add_data_to_distribute(&mut self, id: Vid, data: Shard) -> Result<(), MockInitError> {
         if self.is_main_node {
@@ -141,7 +141,7 @@ where
 
     pub fn add_instruction(
         &mut self,
-        instruction: Instruction<D::Identifier>,
+        instruction: Instruction<D::Identifier, D::Identifier>,
     ) -> Result<(), MockInitError> {
         if self.is_main_node {
             self.instructions_to_execute.push_front(instruction);
@@ -265,10 +265,16 @@ where
     D::Identifier: Clone,
 {
     /// Save in memory and register the fact in consensus.
-    fn save_shard_locally(&mut self, id: D::Identifier, data: D::Data, local_id: PeerId) {
-        if let Err(e) = self.data_memory.put(id.clone(), data) {
+    fn save_shard_locally(
+        &mut self,
+        id: D::Identifier,
+        shard_id: C::OperandPieceId,
+        shard: D::Data,
+        local_id: PeerId,
+    ) {
+        if let Err(e) = self.data_memory.put(id.clone(), shard) {
             warn!("Error saving shard locally: {:?}", e);
-        } else if let Err(e) = self.consensus.push_tx(Transaction::Stored(id, local_id)) {
+        } else if let Err(e) = self.consensus.push_tx(Transaction::Stored(id, shard_id)) {
             warn!(
                 "Error announcing saving shard (may lead to \"dangling\" shard in local mem): {:?}",
                 e
@@ -286,11 +292,15 @@ impl<TConsensus, TDataMemory, TProcessor> NetworkBehaviour
     for Behaviour<TConsensus, TDataMemory, TProcessor>
 where
     // Operator = Vid because we don't store actual data in the consensus
-    TConsensus: GraphConsensus<SyncPayload = crate::types::Graph, OperandId = Vid, PeerId = PeerId>
-        + DataDiscoverer<DataIdentifier = <TDataMemory as DataMemory>::Identifier, PeerAddr = PeerId>
+    TConsensus: GraphConsensus<
+            SyncPayload = crate::types::Graph,
+            OperandId = Vid,
+            PeerId = PeerId,
+            OperandPieceId = (),
+        > + DataDiscoverer<DataIdentifier = <TDataMemory as DataMemory>::Identifier, PeerAddr = PeerId>
         + 'static,
     TDataMemory: DataMemory<Identifier = Vid, Data = Shard> + 'static,
-    TProcessor: Processor<Operand = Vid> + 'static,
+    TProcessor: Processor<Operand = Shard> + 'static,
 {
     type ConnectionHandler = Connection;
     type OutEvent = ();
@@ -398,7 +408,7 @@ where
                         }
                         ConnectionReceived::Simple(Simple::StoreShard((id, data))) => {
                             debug!("Received request to save shard of data id {:?}", id);
-                            self.save_shard_locally(id, data, self.local_peer_id);
+                            self.save_shard_locally(id, (), data, self.local_peer_id);
                         }
                     },
                     Err(ConnectionError::PeerUnsupported) => {
@@ -436,7 +446,7 @@ where
                         peer_id: random_peer,
                         handler: NotifyHandler::Any,
                         event: HandlerEvent::SendPrimary(Primary::Simple(Simple::GossipGraph(
-                            self.consensus.get_graph(),
+                            self.consensus.get_sync(&random_peer),
                         ))),
                     });
                 } else {
@@ -453,13 +463,14 @@ where
             ExecutionState::WaitingInstruction => {}
             ExecutionState::WaitingData { instruction } => {
                 let buf = &mut self.incoming_shards_buffer;
-                match instruction {
-                    Instruction::dot((id1, first), (id2, second), _)
-                    | Instruction::plus((id1, first), (id2, second), _) => {
-                        Self::retrieve_from_buf(buf, id1, first);
-                        Self::retrieve_from_buf(buf, id2, second);
+                match instruction.operation {
+                    Operation::Dot(operation) | Operation::Plus(operation) => {
+                        Self::retrieve_from_buf(buf, &operation.first.0, &mut operation.first.1);
+                        Self::retrieve_from_buf(buf, &operation.second.0, &mut operation.second.1);
                     }
-                    Instruction::inv((id, shard), _) => Self::retrieve_from_buf(buf, id, shard),
+                    Operation::Inv(UnaryOp { operand }) => {
+                        Self::retrieve_from_buf(buf, &operand.0, &mut operand.1)
+                    }
                 }
             }
         }
@@ -468,16 +479,10 @@ where
         match &self.exec_state {
             ExecutionState::WaitingData { instruction } => {
                 // `Some(<instruction>)` if all operands are retrieved and we're ready to execute it
-                let ready_instruction = match instruction {
-                    Instruction::dot((_, Some(o1)), (_, Some(o2)), dest) => {
-                        Some(Instruction::dot(o1, o2, dest))
-                    }
-                    Instruction::plus((_, Some(o1)), (_, Some(o2)), dest) => {
-                        Some(Instruction::plus(o1, o2, dest))
-                    }
-                    Instruction::inv((_, Some(o)), dest) => Some(Instruction::inv(o, dest)),
-                    _ => None,
-                };
+                let ready_instruction = instruction
+                    .as_ref()
+                    .map_operands(|o| o.1.as_ref())
+                    .transpose_operation();
                 // TODO: remove print of whole instruction
                 if let Some(ready_instruction) = ready_instruction {
                     debug!(
@@ -486,7 +491,7 @@ where
                     );
                     match <TProcessor as Processor>::execute(&ready_instruction) {
                         Ok(res) => {
-                            let dest_id = (*ready_instruction.destination()).clone();
+                            let dest_id = (*ready_instruction.result).clone();
                             if self.data_memory.get(&dest_id).is_some() {
                                 warn!("Tried to overwrite data in instruction, the execution result is not saved")
                             } else {
@@ -591,7 +596,7 @@ where
                         debug!("Sending data with id {:?} to {}", id, random_peer);
                         if let Err(e) = self
                             .consensus
-                            .push_tx(Transaction::Stored(id.clone(), random_peer))
+                            .push_tx(Transaction::Stored(id.clone(), id.clone()))
                         {
                             warn!("Error registering transaction about node holding data: {:?}\n Skipping..", e);
                         } else {

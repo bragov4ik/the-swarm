@@ -11,7 +11,7 @@ use crate::{
 #[derive(Serialize, Deserialize, Debug)]
 pub struct InputData {
     pub data_layout: Vec<(Vid, Shard)>,
-    pub instructions: Vec<Instruction<Vid>>,
+    pub instructions: Vec<Instruction<Vid, Vid>>,
 }
 
 #[derive(Debug)]

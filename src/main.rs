@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let transport = libp2p::development_transport(local_key).await?;
 
-    let consensus = MockConsensus::<Vid>::new();
+    let consensus = MockConsensus::<Vid>::new(local_peer_id);
     let data_memory = MemoryStorage::<Vid, Data>::new();
     let processor = MockProcessor {};
 

@@ -2,7 +2,7 @@ use void::Void;
 
 use crate::types::{Shard, Vid};
 
-use super::{Instruction, Processor};
+use super::{Instruction, Operation, Processor};
 
 pub struct MockProcessor {}
 
@@ -22,20 +22,24 @@ impl Processor for MockProcessor {
     type Error = Void;
     type Operand = Shard;
 
-    fn execute(ins: &Instruction<&Shard>) -> Result<Shard, Self::Error> {
+    fn execute<R>(ins: &Instruction<&Shard, R>) -> Result<Shard, Self::Error> {
         // For demostrative purposes, let's have mathematical operations
         // And -> *
         // Or -> +
         // Not -> - (unary)
-        let res = match *ins {
-            Instruction::Dot(a, b, _) => map_zip(a, b, i32::saturating_mul),
-            Instruction::Plus(a, b, _) => map_zip(a, b, i32::saturating_add),
-            Instruction::Inv(a, _) => a.map(|n| -n),
+        let res = match ins.operation {
+            Operation::Dot(operation) => {
+                map_zip(operation.first, operation.second, i32::saturating_mul)
+            }
+            Operation::Plus(operation) => {
+                map_zip(operation.first, operation.second, i32::saturating_add)
+            }
+            Operation::Inv(operation) => operation.operand.map(|n| -n),
         };
         Ok(res)
     }
 
-    fn execute_batch(ins: &[Instruction<&Shard>]) -> Vec<Result<Shard, Self::Error>> {
+    fn execute_batch<R>(ins: &[Instruction<&Shard, R>]) -> Vec<Result<Shard, Self::Error>> {
         ins.iter().map(Self::execute).collect()
     }
 }

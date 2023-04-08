@@ -30,6 +30,8 @@
 //! - Adding/getting instructions is basically adding/getting transaction of type
 //! instruction"
 
+use std::fmt::Debug;
+
 use serde::{Deserialize, Serialize};
 
 use crate::processor::Instruction;
@@ -48,14 +50,14 @@ pub trait GraphConsensus {
     /// Something like list of events that source peer knows.
     type SyncPayload;
 
-    type UpdateError;
-    type PushTxError;
+    type UpdateError: Debug;
+    type PushTxError: Debug;
 
     /// Update local knowledge of the graph according to received gossip
-    fn update_graph(&mut self, new_graph: Self::SyncPayload) -> Result<(), Self::UpdateError>;
+    fn update_graph(&mut self, update: Self::SyncPayload) -> Result<(), Self::UpdateError>;
 
     /// Get graph state to send to peers
-    fn get_graph(&self) -> Self::SyncPayload;
+    fn get_sync(&self, sync_for: &Self::PeerId) -> Self::SyncPayload;
 
     /// Add transaction to a queue - list of txs that will be added in next event
     /// created by this node.
@@ -73,7 +75,7 @@ pub trait DataDiscoverer {
     type PeerAddr;
 
     /// Find peers where shards of `vector_id` are located and can be retreived.
-    fn shard_locations(&self, vector_id: &Self::DataIdentifier) -> Vec<Self::PeerAddr>;
+    fn shard_locations(&self, data_id: &Self::DataIdentifier) -> Vec<Self::PeerAddr>;
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -86,5 +88,5 @@ pub enum Transaction<TOperandId, TOperandPieceId, TPeerId> {
     /// Indicates that specified piece (data) of operand is stored somewhere
     Stored(TOperandId, TOperandPieceId),
     /// Instruction is queued for execution by the author
-    Execute(Instruction<TOperandId>),
+    Execute(Instruction<TOperandId, TOperandId>),
 }
