@@ -89,12 +89,12 @@ where
     is_main_node: bool,
     data_to_distribute: VecDeque<(Vid, Shard)>,
     distribute: bool,
-    instructions_to_execute: VecDeque<Instruction<Vid, Vid>>,
+    instructions_to_execute: VecDeque<Instruction<Vid>>,
     execute: bool,
 
     /// Execution status (to be removed/completely changed with
     /// actual consensus, it's a mock part)
-    exec_state: ExecutionState<TDataMemory::Data, TDataMemory::Identifier>,
+    exec_state: ExecutionState<TDataMemory::Identifier>,
     pending_handler_events: VecDeque<(PeerId, HandlerEvent)>,
 }
 
@@ -112,9 +112,9 @@ where
     }
 }
 
-enum ExecutionState<TOperand, ID> {
+enum ExecutionState<TOperandId> {
     WaitingData {
-        instruction: Instruction<(ID, Option<TOperand>), ID>,
+        instruction: Instruction<TOperandId>,
     },
     WaitingInstruction,
 }
@@ -128,7 +128,7 @@ pub enum MockInitError {
 impl<C, D, P> Behaviour<C, D, P>
 where
     D: DataMemory<Identifier = Vid>,
-    C: InstructionMemory<Instruction = Instruction<D::Identifier, D::Identifier>>,
+    C: InstructionMemory<Instruction = Instruction<D::Identifier>>,
 {
     pub fn add_data_to_distribute(&mut self, id: Vid, data: Shard) -> Result<(), MockInitError> {
         if self.is_main_node {
@@ -141,7 +141,7 @@ where
 
     pub fn add_instruction(
         &mut self,
-        instruction: Instruction<D::Identifier, D::Identifier>,
+        instruction: Instruction<D::Identifier>,
     ) -> Result<(), MockInitError> {
         if self.is_main_node {
             self.instructions_to_execute.push_front(instruction);
@@ -260,7 +260,7 @@ where
 }
 impl<C, D, P> Behaviour<C, D, P>
 where
-    C: GraphConsensus<Operand = Vid, Location = PeerId>,
+    C: GraphConsensus<OperandId = Vid, PeerId = PeerId>,
     D: DataMemory<Identifier = Vid>,
     D::Identifier: Clone,
 {
@@ -286,11 +286,11 @@ impl<TConsensus, TDataMemory, TProcessor> NetworkBehaviour
     for Behaviour<TConsensus, TDataMemory, TProcessor>
 where
     // Operator = Vid because we don't store actual data in the consensus
-    TConsensus: GraphConsensus<SyncPayload = crate::types::Graph, Operand = Vid, Location = PeerId>
+    TConsensus: GraphConsensus<SyncPayload = crate::types::Graph, OperandId = Vid, PeerId = PeerId>
         + DataDiscoverer<DataIdentifier = <TDataMemory as DataMemory>::Identifier, PeerAddr = PeerId>
         + 'static,
     TDataMemory: DataMemory<Identifier = Vid, Data = Shard> + 'static,
-    TProcessor: Processor<Id = Vid, Operand = <TDataMemory as DataMemory>::Data> + 'static,
+    TProcessor: Processor<Operand = Vid> + 'static,
 {
     type ConnectionHandler = Connection;
     type OutEvent = ();
@@ -454,12 +454,12 @@ where
             ExecutionState::WaitingData { instruction } => {
                 let buf = &mut self.incoming_shards_buffer;
                 match instruction {
-                    Instruction::Dot((id1, first), (id2, second), _)
-                    | Instruction::Plus((id1, first), (id2, second), _) => {
+                    Instruction::dot((id1, first), (id2, second), _)
+                    | Instruction::plus((id1, first), (id2, second), _) => {
                         Self::retrieve_from_buf(buf, id1, first);
                         Self::retrieve_from_buf(buf, id2, second);
                     }
-                    Instruction::Inv((id, shard), _) => Self::retrieve_from_buf(buf, id, shard),
+                    Instruction::inv((id, shard), _) => Self::retrieve_from_buf(buf, id, shard),
                 }
             }
         }
@@ -469,13 +469,13 @@ where
             ExecutionState::WaitingData { instruction } => {
                 // `Some(<instruction>)` if all operands are retrieved and we're ready to execute it
                 let ready_instruction = match instruction {
-                    Instruction::Dot((_, Some(o1)), (_, Some(o2)), dest) => {
-                        Some(Instruction::Dot(o1, o2, dest))
+                    Instruction::dot((_, Some(o1)), (_, Some(o2)), dest) => {
+                        Some(Instruction::dot(o1, o2, dest))
                     }
-                    Instruction::Plus((_, Some(o1)), (_, Some(o2)), dest) => {
-                        Some(Instruction::Plus(o1, o2, dest))
+                    Instruction::plus((_, Some(o1)), (_, Some(o2)), dest) => {
+                        Some(Instruction::plus(o1, o2, dest))
                     }
-                    Instruction::Inv((_, Some(o)), dest) => Some(Instruction::Inv(o, dest)),
+                    Instruction::inv((_, Some(o)), dest) => Some(Instruction::inv(o, dest)),
                     _ => None,
                 };
                 // TODO: remove print of whole instruction
@@ -486,7 +486,7 @@ where
                     );
                     match <TProcessor as Processor>::execute(&ready_instruction) {
                         Ok(res) => {
-                            let dest_id = (*ready_instruction.get_dest()).clone();
+                            let dest_id = (*ready_instruction.destination()).clone();
                             if self.data_memory.get(&dest_id).is_some() {
                                 warn!("Tried to overwrite data in instruction, the execution result is not saved")
                             } else {
@@ -510,26 +510,26 @@ where
                     // Now we need to obtain data for computations. We try to get it from local storage,
                     // if unsuccessful, discover & send requests to corresponding nodes.
                     let state_instruction = match instruction {
-                        Instruction::Dot(i1, i2, dest) => Instruction::Dot(
+                        Instruction::dot(i1, i2, dest) => Instruction::dot(
                             (i1.clone(), self.data_memory.get(&i1).cloned()),
                             (i2.clone(), self.data_memory.get(&i2).cloned()),
                             dest,
                         ),
-                        Instruction::Plus(i1, i2, dest) => Instruction::Plus(
+                        Instruction::plus(i1, i2, dest) => Instruction::plus(
                             (i1.clone(), self.data_memory.get(&i1).cloned()),
                             (i2.clone(), self.data_memory.get(&i2).cloned()),
                             dest,
                         ),
-                        Instruction::Inv(i, dest) => {
-                            Instruction::Inv((i.clone(), self.data_memory.get(&i).cloned()), dest)
+                        Instruction::inv(i, dest) => {
+                            Instruction::inv((i.clone(), self.data_memory.get(&i).cloned()), dest)
                         }
                     };
 
                     debug!("Scheduling data requests (if needed)");
                     // Schedule data requests, if needed
                     let success = match &state_instruction {
-                        Instruction::Dot((i1, opt1), (i2, opt2), _)
-                        | Instruction::Plus((i1, opt1), (i2, opt2), _) => {
+                        Instruction::dot((i1, opt1), (i2, opt2), _)
+                        | Instruction::plus((i1, opt1), (i2, opt2), _) => {
                             let res1 = if opt1.is_none() {
                                 self.place_data_request(i1.clone())
                             } else {
@@ -542,7 +542,7 @@ where
                             };
                             res1.and(res2)
                         }
-                        Instruction::Inv((i, opt), _) => {
+                        Instruction::inv((i, opt), _) => {
                             if opt.is_none() {
                                 self.place_data_request(i.clone())
                             } else {

@@ -4,20 +4,59 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) mod mock;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub enum Instruction<TOperandSrc, TOperandDest> {
-    // First operands, then result
-    Dot(TOperandSrc, TOperandSrc, TOperandDest),
-    Plus(TOperandSrc, TOperandSrc, TOperandDest),
-    Inv(TOperandSrc, TOperandDest),
+macro_rules! impl_binary {
+    ($function_name: ident, $enum_variant: ident) => {
+        impl<TOperand> Instruction<TOperand> {
+            pub fn $function_name(first: TOperand, second: TOperand, result: TOperand) -> Self {
+                Instruction::$enum_variant(BinaryOp {
+                    first,
+                    second,
+                    result,
+                })
+            }
+        }
+    };
 }
 
-impl<TOperand, ID> Instruction<TOperand, ID> {
-    pub fn get_dest(&self) -> &ID {
+macro_rules! impl_unary {
+    ($function_name: ident, $enum_variant: ident) => {
+        impl<TOperand> Instruction<TOperand> {
+            pub fn $function_name(first: TOperand, result: TOperand) -> Self {
+                Instruction::$enum_variant(UnaryOp { first, result })
+            }
+        }
+    };
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub enum Instruction<TOperand> {
+    // First operands, then result
+    Dot(BinaryOp<TOperand>),
+    Plus(BinaryOp<TOperand>),
+    Inv(UnaryOp<TOperand>),
+}
+
+impl_binary!(dot, Dot);
+impl_binary!(plus, Plus);
+impl_unary!(inv, Inv);
+
+pub struct BinaryOp<TOperand> {
+    pub first: TOperand,
+    pub second: TOperand,
+    pub result: TOperand,
+}
+
+pub struct UnaryOp<TOperand> {
+    pub first: TOperand,
+    pub result: TOperand,
+}
+
+impl<TOperand> Instruction<TOperand> {
+    pub fn destination(&self) -> &TOperand {
         match self {
-            Instruction::Dot(_, _, id) => id,
-            Instruction::Plus(_, _, id) => id,
-            Instruction::Inv(_, id) => id,
+            Instruction::Dot(dot) => &dot.result,
+            Instruction::Plus(plus) => &plus.result,
+            Instruction::Inv(inv) => &inv.result,
         }
     }
 }
@@ -25,10 +64,9 @@ impl<TOperand, ID> Instruction<TOperand, ID> {
 pub trait Processor {
     type Error: Debug;
     type Operand: Eq;
-    type Id: Eq;
 
-    fn execute(ins: &Instruction<&Self::Operand, &Self::Id>) -> Result<Self::Operand, Self::Error>;
+    fn execute(ins: &Instruction<&Self::Operand>) -> Result<Self::Operand, Self::Error>;
     fn execute_batch(
-        ins: &[Instruction<&Self::Operand, &Self::Id>],
+        ins: &[Instruction<&Self::Operand>],
     ) -> Vec<Result<Self::Operand, Self::Error>>;
 }

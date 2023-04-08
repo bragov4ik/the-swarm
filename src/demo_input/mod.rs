@@ -11,7 +11,7 @@ use crate::{
 #[derive(Serialize, Deserialize, Debug)]
 pub struct InputData {
     pub data_layout: Vec<(Vid, Shard)>,
-    pub instructions: Vec<Instruction<Vid, Vid>>,
+    pub instructions: Vec<Instruction<Vid>>,
 }
 
 #[derive(Debug)]
@@ -50,9 +50,9 @@ where
     let test_data = InputData {
         data_layout: vec![(Vid(1), [1, 2, 3, 4]), (Vid(2), [1337, 322, 123, -1])],
         instructions: vec![
-            Instruction::Plus(Vid(1), Vid(2), Vid(3)),
-            Instruction::Dot(Vid(1), Vid(2), Vid(4)),
-            Instruction::Inv(Vid(4), Vid(5)),
+            Instruction::plus(Vid(1), Vid(2), Vid(3)),
+            Instruction::dot(Vid(1), Vid(2), Vid(4)),
+            Instruction::inv(Vid(4), Vid(5)),
         ],
     };
     let raw = serde_json::to_string_pretty(&test_data).map_err(InputError::Serde)?;

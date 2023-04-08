@@ -32,26 +32,27 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{instruction_memory::InstructionMemory, processor::Instruction};
+use crate::processor::Instruction;
 
 pub mod mock;
 // mod graph;
 
-pub trait GraphConsensus:
-    InstructionMemory<Instruction = Instruction<Self::Operand, Self::Operand>>
-{
-    /// Data that consensus operates on
-    type Operand;
+pub trait GraphConsensus {
+    type OperandId;
+    type OperandPieceId;
 
-    /// Representation of peer locations
-    type Location;
+    /// Peer identifier
+    type PeerId;
 
     /// Data that is transferred for peers sync.
     /// Something like list of events that source peer knows.
     type SyncPayload;
 
+    type UpdateError;
+    type PushTxError;
+
     /// Update local knowledge of the graph according to received gossip
-    fn update_graph(&mut self, new_graph: Self::SyncPayload) -> Result<(), Self::Error>;
+    fn update_graph(&mut self, new_graph: Self::SyncPayload) -> Result<(), Self::UpdateError>;
 
     /// Get graph state to send to peers
     fn get_graph(&self) -> Self::SyncPayload;
@@ -60,8 +61,8 @@ pub trait GraphConsensus:
     /// created by this node.
     fn push_tx(
         &mut self,
-        tx: Transaction<Self::Operand, Self::Location>,
-    ) -> Result<(), Self::Error>;
+        tx: Transaction<Self::OperandId, Self::OperandPieceId, Self::PeerId>,
+    ) -> Result<(), Self::PushTxError>;
 }
 
 pub trait DataDiscoverer {
@@ -76,9 +77,14 @@ pub trait DataDiscoverer {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub enum Transaction<TOperand, TLocation> {
-    /// Indicates that operand (data) is stored somewhere
-    Stored(TOperand, TLocation),
+pub enum Transaction<TOperandId, TOperandPieceId, TPeerId> {
+    /// We want to put data at this (memory) address with specified distribution
+    StorageRequest {
+        address: TOperandId,
+        distribution: Vec<(TPeerId, TOperandPieceId)>,
+    },
+    /// Indicates that specified piece (data) of operand is stored somewhere
+    Stored(TOperandId, TOperandPieceId),
     /// Instruction is queued for execution by the author
-    ExecutionRequest(Instruction<TOperand, TOperand>),
+    Execute(Instruction<TOperandId>),
 }

@@ -21,9 +21,8 @@ where
 impl Processor for MockProcessor {
     type Error = Void;
     type Operand = Shard;
-    type Id = Vid;
 
-    fn execute(ins: &Instruction<&Shard, &Vid>) -> Result<Shard, Self::Error> {
+    fn execute(ins: &Instruction<&Shard>) -> Result<Shard, Self::Error> {
         // For demostrative purposes, let's have mathematical operations
         // And -> *
         // Or -> +
@@ -36,7 +35,7 @@ impl Processor for MockProcessor {
         Ok(res)
     }
 
-    fn execute_batch(ins: &[Instruction<&Shard, &Vid>]) -> Vec<Result<Shard, Self::Error>> {
+    fn execute_batch(ins: &[Instruction<&Shard>]) -> Vec<Result<Shard, Self::Error>> {
         ins.iter().map(Self::execute).collect()
     }
 }

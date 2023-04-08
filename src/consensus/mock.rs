@@ -1,3 +1,4 @@
+//! Mock implementation of consensus. Not sure if needed, so unchanged for now.
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -6,13 +7,12 @@ use std::{
 };
 use tracing::debug;
 
-use crate::{instruction_memory::InstructionMemory, processor::Instruction};
-
 use super::{DataDiscoverer, GraphConsensus, Transaction};
+use crate::{instruction_memory::InstructionMemory, processor::Instruction};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct MockConsensus<TOperand: Hash + Eq> {
-    instructions: Vec<Instruction<TOperand, TOperand>>,
+    instructions: Vec<Instruction<TOperand>>,
     #[serde(skip)]
     instruction_pointer: usize,
     data_locations: HashMap<TOperand, PeerId>,
@@ -40,10 +40,10 @@ pub enum Error {
 
 impl<TOperand: Clone + Hash + Eq> InstructionMemory for MockConsensus<TOperand> {
     type Error = Error;
-    type Instruction = Instruction<TOperand, TOperand>;
+    type Instruction = Instruction<TOperand>;
 
     fn push_instruction(&mut self, instruction: Self::Instruction) -> Result<(), Self::Error> {
-        self.push_tx(Transaction::ExecutionRequest(instruction))
+        self.push_tx(Transaction::Execute(instruction))
     }
 
     fn next_instruction(&mut self) -> Option<Self::Instruction> {
@@ -56,11 +56,14 @@ impl<TOperand: Clone + Hash + Eq> InstructionMemory for MockConsensus<TOperand> 
 }
 
 impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
-    type Operand = TOperand;
-    type Location = PeerId;
+    type OperandId = TOperand;
+    type PeerId = PeerId;
     type SyncPayload = Self;
 
-    fn update_graph(&mut self, new_graph: Self::SyncPayload) -> Result<(), Self::Error> {
+    type UpdateError = Error;
+    type PushTxError = Error;
+
+    fn update_graph(&mut self, new_graph: Self::SyncPayload) -> Result<(), Error> {
         if new_graph.version > self.version {
             debug!(
                 "Received version is newer ({}>{}), updating state",
@@ -82,10 +85,10 @@ impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
 
     fn push_tx(
         &mut self,
-        tx: Transaction<Self::Operand, Self::Location>,
-    ) -> Result<(), Self::Error> {
+        tx: Transaction<Self::OperandId, Self::OperandPieceId, Self::PeerId>,
+    ) -> Result<(), Error> {
         match tx {
-            Transaction::ExecutionRequest(i) => {
+            Transaction::Execute(i) => {
                 self.instructions.push(i);
                 self.version += 1;
                 Ok(())
@@ -98,6 +101,11 @@ impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
                     Ok(())
                 }
             },
+            // todo: check if needed
+            Transaction::StorageRequest {
+                address,
+                distribution,
+            } => Ok(()),
         }
     }
 }
