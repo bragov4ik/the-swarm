@@ -40,6 +40,23 @@ struct Args {
     dial_address: Option<String>,
 }
 
+#[derive(NetworkBehaviour)]
+#[behaviour(out_event = "CombinedBehaviourEvent")]
+struct CombinedBehaviour {
+    // Main logic
+    main: node::Behaviour<MockConsensus<Vid>, MemoryStorage<Vid, Data>, MockProcessor>,
+    // MDNS performs LAN node discovery, allows not to manually write peer addresses
+    mdns: mdns::async_io::Behaviour,
+}
+
+#[derive(Debug)]
+// TODO: add Main event and check if applies
+#[allow(clippy::large_enum_variant)]
+enum CombinedBehaviourEvent {
+    Main(()),
+    Mdns(mdns::Event),
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // let format = tracing_subscriber::fmt::format();
@@ -56,23 +73,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let consensus = MockConsensus::<Vid>::new(local_peer_id);
     let data_memory = MemoryStorage::<Vid, Data>::new();
     let processor = MockProcessor {};
-
-    #[derive(NetworkBehaviour)]
-    #[behaviour(out_event = "CombinedBehaviourEvent")]
-    struct CombinedBehaviour {
-        // Main logic
-        main: node::Behaviour<MockConsensus<Vid>, MemoryStorage<Vid, Data>, MockProcessor>,
-        // MDNS performs LAN node discovery, allows not to manually write peer addresses
-        mdns: mdns::async_io::Behaviour,
-    }
-
-    #[derive(Debug)]
-    // TODO: add Main event and check if applies
-    #[allow(clippy::large_enum_variant)]
-    enum CombinedBehaviourEvent {
-        Main(()),
-        Mdns(mdns::Event),
-    }
 
     impl From<()> for CombinedBehaviourEvent {
         fn from(event: ()) -> Self {

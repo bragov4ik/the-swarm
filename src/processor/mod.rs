@@ -30,7 +30,7 @@ macro_rules! impl_unary {
     };
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub struct Instruction<TOperand, TResult> {
     pub operation: Operation<TOperand>,
     pub result: TResult,
@@ -92,7 +92,7 @@ impl<O, R> Instruction<Option<O>, R> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub enum Operation<TOperand> {
     Dot(BinaryOp<TOperand>),
     Plus(BinaryOp<TOperand>),
@@ -103,7 +103,7 @@ impl_binary!(dot, Dot);
 impl_binary!(plus, Plus);
 impl_unary!(inv, Inv);
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub struct BinaryOp<TOperand> {
     pub first: TOperand,
     pub second: TOperand,
@@ -127,7 +127,7 @@ impl<O> BinaryOp<Option<O>> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub struct UnaryOp<TOperand> {
     pub operand: TOperand,
 }

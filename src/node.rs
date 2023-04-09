@@ -112,9 +112,9 @@ where
     }
 }
 
-enum ExecutionState<TOperandId, TOperand> {
+enum ExecutionState<TDataId, TData> {
     WaitingData {
-        instruction: Instruction<(TOperandId, Option<TOperand>), TOperandId>,
+        instruction: Instruction<(TDataId, Option<TData>), TDataId>,
     },
     WaitingInstruction,
 }
@@ -619,7 +619,7 @@ where
                 match self.data_to_distribute.pop_back() {
                     Some((id, data)) => {
                         debug!("Saving data with id {:?}", id);
-                        self.save_shard_locally(id, data, self.local_peer_id);
+                        self.save_shard_locally(id, (), data, self.local_peer_id);
                     }
                     None => {
                         info!("Finished distributing initial data");

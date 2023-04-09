@@ -36,8 +36,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::processor::Instruction;
 
+pub mod graph;
 pub mod mock;
-// mod graph;
 
 pub trait GraphConsensus {
     type OperandId;
@@ -78,15 +78,15 @@ pub trait DataDiscoverer {
     fn shard_locations(&self, data_id: &Self::DataIdentifier) -> Vec<Self::PeerAddr>;
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub enum Transaction<TOperandId, TOperandPieceId, TPeerId> {
+#[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
+pub enum Transaction<TDataId, TPieceId, TPeerId> {
     /// We want to put data at this (memory) address with specified distribution
     StorageRequest {
-        address: TOperandId,
-        distribution: Vec<(TPeerId, TOperandPieceId)>,
+        address: TDataId,
+        distribution: Vec<(TPeerId, TPieceId)>,
     },
     /// Indicates that specified piece (data) of operand is stored somewhere
-    Stored(TOperandId, TOperandPieceId),
+    Stored(TDataId, TPieceId),
     /// Instruction is queued for execution by the author
-    Execute(Instruction<TOperandId, TOperandId>),
+    Execute(Instruction<TDataId, TDataId>),
 }

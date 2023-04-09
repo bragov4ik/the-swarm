@@ -13,6 +13,7 @@ libp2p = { version = "0.51.2", features = ["serde", "tcp", "mdns", "tokio", "asy
 # Add integration of actual consensus
 rust-hashgraph = { path = "../rust-hashgraph" }
 rand = "0.8.5"
+thiserror = "1.0"
 tokio = { version = "1.27.0", features = ["full"] }
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
