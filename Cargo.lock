@@ -3074,7 +3074,6 @@ dependencies = [
 [[package]]
 name = "rust-hashgraph"
 version = "0.1.0"
-source = "git+https://github.com/bragov4ik/rust-hashgraph.git?branch=master#2505629ee5d7923e75a4d257a6edebc18eb76d5c"
 dependencies = [
  "bincode",
  "blake2",
