@@ -10,7 +10,7 @@ use tracing::{debug, error, info};
 use types::Shard;
 
 use crate::consensus::mock::MockConsensus;
-use crate::data_memory::MemoryStorage;
+use crate::data_memory::mock::MemoryStorage;
 use crate::processor::mock::MockProcessor;
 use crate::types::Vid;
 
