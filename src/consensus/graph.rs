@@ -29,6 +29,14 @@ struct EventPayload<TDataId, TPieceId> {
 }
 
 impl<TDataId, TPieceId> GraphWrapper<TDataId, TPieceId> {
+    pub fn from_graph(graph: Graph<EventPayload<TDataId, TPieceId>, PeerId, (), ()>) -> Self {
+        Self {
+            inner: graph,
+            state_updated: Arc::new(Notify::new()),
+            transaction_buffer: Vec::new(),
+        }
+    }
+
     pub fn inner(&self) -> &Graph<EventPayload<TDataId, TPieceId>, PeerId, (), ()> {
         &self.inner
     }
