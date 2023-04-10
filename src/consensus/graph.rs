@@ -14,7 +14,7 @@ use thiserror::Error;
 use tokio::pin;
 use tokio::sync::Notify;
 
-use super::Transaction;
+use super::{GraphConsensus, Transaction};
 
 pub struct GraphWrapper<TDataId, TPieceId> {
     // todo: replace parentheses - ()
@@ -59,7 +59,7 @@ where
 {
     pub fn apply_sync(
         &mut self,
-        from: &PeerId,
+        from: PeerId,
         sync_jobs: datastructure::sync::Jobs<EventPayload<TDataId, TPieceId>, PeerId>,
     ) -> Result<(), ApplySyncError> {
         if !sync_jobs.as_linear().is_empty() {
@@ -75,7 +75,7 @@ where
         // to be updated there.
         let other_parent = self
             .inner
-            .peer_latest_event(from)
+            .peer_latest_event(&from)
             .clone()
             .ok_or_else(|| ApplySyncError::UnknownPeer(from.clone()))?;
         self.inner.create_event(payload, other_parent.clone())?;
@@ -94,6 +94,43 @@ where
             .expect("Peer must know itself")
             .clone();
         self.inner.create_event(payload, self_parent)?;
+        Ok(())
+    }
+}
+
+impl<TDataId, TPieceId> GraphConsensus for GraphWrapper<TDataId, TPieceId>
+where
+    TDataId: Serialize + Eq + std::hash::Hash + Debug + Clone,
+    TPieceId: Serialize + Eq + std::hash::Hash + Debug + Clone,
+{
+    type OperandId = TDataId;
+    type OperandPieceId = TPieceId;
+    type PeerId = PeerId;
+    type SyncPayload = (
+        PeerId,
+        datastructure::sync::Jobs<EventPayload<TDataId, TPieceId>, PeerId>,
+    );
+    type UpdateError = ApplySyncError;
+    type PushTxError = ();
+    type SyncGenerateError = datastructure::sync::Error;
+
+    fn update_graph(&mut self, update: Self::SyncPayload) -> Result<(), Self::UpdateError> {
+        self.apply_sync(update.0, update.1)
+    }
+
+    fn get_sync(
+        &self,
+        sync_for: &Self::PeerId,
+    ) -> Result<Self::SyncPayload, Self::SyncGenerateError> {
+        let sync_payload = self.inner.generate_sync_for(sync_for)?;
+        Ok((self.inner.self_id().clone(), sync_payload))
+    }
+
+    fn push_tx(
+        &mut self,
+        tx: Transaction<Self::OperandId, Self::OperandPieceId, Self::PeerId>,
+    ) -> Result<(), Self::PushTxError> {
+        self.transaction_buffer.push(tx);
         Ok(())
     }
 }

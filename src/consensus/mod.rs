@@ -52,12 +52,16 @@ pub trait GraphConsensus {
 
     type UpdateError: Debug;
     type PushTxError: Debug;
+    type SyncGenerateError: Debug;
 
     /// Update local knowledge of the graph according to received gossip
     fn update_graph(&mut self, update: Self::SyncPayload) -> Result<(), Self::UpdateError>;
 
     /// Get graph state to send to peers
-    fn get_sync(&self, sync_for: &Self::PeerId) -> Self::SyncPayload;
+    fn get_sync(
+        &self,
+        sync_for: &Self::PeerId,
+    ) -> Result<Self::SyncPayload, Self::SyncGenerateError>;
 
     /// Add transaction to a queue - list of txs that will be added in next event
     /// created by this node.

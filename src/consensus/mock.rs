@@ -65,6 +65,7 @@ impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
 
     type UpdateError = Error;
     type PushTxError = Error;
+    type SyncGenerateError = ();
 
     fn update_graph(&mut self, new_graph: Self::SyncPayload) -> Result<(), Error> {
         if new_graph.version > self.version {
@@ -82,8 +83,8 @@ impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
         }
     }
 
-    fn get_sync(&self, _sync_for: &Self::PeerId) -> Self::SyncPayload {
-        self.clone()
+    fn get_sync(&self, _sync_for: &Self::PeerId) -> Result<Self::SyncPayload, ()> {
+        Ok(self.clone())
     }
 
     fn push_tx(
