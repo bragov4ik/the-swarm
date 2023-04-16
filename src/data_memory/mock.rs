@@ -24,21 +24,21 @@ where
 {
     type Error = Void;
     type Identifier = K;
-    type Data = V;
+    type Piece = V;
 
-    fn get(&self, id: &Self::Identifier) -> Option<&Self::Data> {
+    fn get_piece(&self, id: &Self::Identifier) -> Option<&Self::Piece> {
         self.inner.get(id)
     }
 
-    fn put(
+    fn store_piece(
         &mut self,
         id: Self::Identifier,
-        data: Self::Data,
-    ) -> Result<Option<Self::Data>, Self::Error> {
+        data: Self::Piece,
+    ) -> Result<Option<Self::Piece>, Self::Error> {
         Ok(self.inner.insert(id, data))
     }
 
-    fn remove(&mut self, id: &Self::Identifier) -> Result<Option<Self::Data>, Self::Error> {
+    fn remove_piece(&mut self, id: &Self::Identifier) -> Result<Option<Self::Piece>, Self::Error> {
         Ok(self.inner.remove(id))
     }
 }
