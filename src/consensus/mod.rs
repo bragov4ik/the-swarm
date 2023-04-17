@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use crate::processor::Instruction;
 
 pub mod graph;
-pub mod mock;
+// pub mod mock;
 
 pub trait GraphConsensus {
     type OperandId;

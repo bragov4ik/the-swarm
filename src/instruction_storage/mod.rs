@@ -1,7 +1,5 @@
 use futures::Stream;
 
-mod mock;
-
 pub trait InstructionMemory: Stream<Item = Self::Program> {
     type Error: std::fmt::Debug;
     type Program;

@@ -18,7 +18,7 @@ use std::{collections::HashMap, fmt::Debug};
 
 use libp2p::PeerId;
 
-pub mod mock;
+// pub mod mock;
 
 pub type FullPieceId<D: DataMemory> = (D::DataId, D::PieceId);
 
