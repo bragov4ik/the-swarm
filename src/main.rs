@@ -18,7 +18,7 @@ mod consensus;
 mod data_memory;
 mod demo_input;
 mod handler;
-mod instruction_memory;
+mod instruction_storage;
 mod node;
 mod processor;
 mod protocol;
