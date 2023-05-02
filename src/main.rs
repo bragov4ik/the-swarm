@@ -9,22 +9,21 @@ use tokio::io::{self, AsyncBufReadExt};
 use tracing::{debug, error, info};
 use types::Shard;
 
-use crate::consensus::mock::MockConsensus;
-use crate::data_memory::mock::MemoryStorage;
-use crate::processor::mock::MockProcessor;
+use crate::consensus::graph::GraphWrapper;
+use crate::data_memory::DataMemory;
+use crate::processor::single_threaded::SimpleProcessor;
 use crate::types::Vid;
 
 mod consensus;
 mod data_memory;
 mod demo_input;
+mod encoding;
 mod handler;
 mod instruction_storage;
 mod node;
 mod processor;
 mod protocol;
 mod types;
-
-pub type Data = Shard;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -44,7 +43,7 @@ struct Args {
 #[behaviour(out_event = "CombinedBehaviourEvent")]
 struct CombinedBehaviour {
     // Main logic
-    main: node::Behaviour<MockConsensus<Vid>, MemoryStorage<Vid, Data>, MockProcessor>,
+    main: node::Behaviour<MockConsensus<Vid>, MemoryStorage<Vid, Shard>, MockProcessor>,
     // MDNS performs LAN node discovery, allows not to manually write peer addresses
     mdns: mdns::async_io::Behaviour,
 }
@@ -71,7 +70,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let transport = libp2p::development_transport(local_key).await?;
 
     let consensus = MockConsensus::<Vid>::new(local_peer_id);
-    let data_memory = MemoryStorage::<Vid, Data>::new();
+    let data_memory = MemoryStorage::<Vid, Shard>::new();
     let processor = MockProcessor {};
 
     impl From<()> for CombinedBehaviourEvent {

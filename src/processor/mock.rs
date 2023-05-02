@@ -1,8 +1,8 @@
 use void::Void;
 
-use crate::types::{Shard, Vid};
+use crate::types::{Shard};
 
-use super::{Instruction, Operation, Processor};
+use super::{Instruction, Processor, instruction::Operation};
 
 pub struct MockProcessor {}
 
@@ -22,7 +22,7 @@ impl Processor for MockProcessor {
     type Error = Void;
     type Operand = Shard;
 
-    fn execute<R>(ins: &Instruction<&Shard, R>) -> Result<Shard, Self::Error> {
+    fn execute_one<R>(ins: &Instruction<&Shard, R>) -> Result<Shard, Self::Error> {
         // For demostrative purposes, let's have mathematical operations
         // And -> *
         // Or -> +
@@ -39,7 +39,7 @@ impl Processor for MockProcessor {
         Ok(res)
     }
 
-    fn execute_batch<R>(ins: &[Instruction<&Shard, R>]) -> Vec<Result<Shard, Self::Error>> {
-        ins.iter().map(Self::execute).collect()
+    fn execute<R>(ins: &[Instruction<&Shard, R>]) -> Vec<Result<Shard, Self::Error>> {
+        ins.iter().map(Self::execute_one).collect()
     }
 }

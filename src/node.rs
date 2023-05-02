@@ -39,7 +39,7 @@ use crate::{
     consensus::{DataDiscoverer, GraphConsensus, Transaction},
     data_memory::DataMemory,
     handler::{Connection, ConnectionError, ConnectionReceived, IncomingEvent as HandlerEvent},
-    instruction_memory::InstructionMemory,
+    instruction_storage::InstructionMemory,
     processor::{Instruction, Operation, Processor, UnaryOp},
     protocol::{Primary, Request, Response, Simple},
     types::{Shard, Vid},
@@ -489,7 +489,7 @@ where
                         "Received all data, executing instruction {:?}",
                         ready_instruction
                     );
-                    match <TProcessor as Processor>::execute(&ready_instruction) {
+                    match <TProcessor as Processor>::execute_one(&ready_instruction) {
                         Ok(res) => {
                             let dest_id = (*ready_instruction.result).clone();
                             if self.data_memory.get_piece(&dest_id).is_some() {

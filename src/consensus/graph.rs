@@ -9,12 +9,15 @@ use rust_hashgraph::algorithm::{
     datastructure::{self, EventCreateError, Graph},
     PushError,
 };
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use thiserror::Error;
 use tokio::pin;
 use tokio::sync::Notify;
 
 use super::{GraphConsensus, Transaction};
+
+pub type SyncJobs<TDataId, TShardId> =
+    datastructure::sync::Jobs<EventPayload<TDataId, TShardId>, PeerId>;
 
 pub struct GraphWrapper<TDataId, TPieceId> {
     // todo: replace parentheses - ()
@@ -23,7 +26,7 @@ pub struct GraphWrapper<TDataId, TPieceId> {
     transaction_buffer: Vec<Transaction<TDataId, TPieceId, PeerId>>,
 }
 
-#[derive(Serialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 struct EventPayload<TDataId, TPieceId> {
     transacitons: Vec<Transaction<TDataId, TPieceId, PeerId>>,
 }
@@ -60,7 +63,7 @@ where
     pub fn apply_sync(
         &mut self,
         from: PeerId,
-        sync_jobs: datastructure::sync::Jobs<EventPayload<TDataId, TPieceId>, PeerId>,
+        sync_jobs: SyncJobs<TDataId, TPieceId>,
     ) -> Result<(), ApplySyncError> {
         if !sync_jobs.as_linear().is_empty() {
             self.state_updated.notify_one();
@@ -106,10 +109,7 @@ where
     type OperandId = TDataId;
     type OperandPieceId = TPieceId;
     type PeerId = PeerId;
-    type SyncPayload = (
-        PeerId,
-        datastructure::sync::Jobs<EventPayload<TDataId, TPieceId>, PeerId>,
-    );
+    type SyncPayload = (PeerId, SyncJobs<TDataId, TPieceId>);
     type UpdateError = ApplySyncError;
     type PushTxError = ();
     type SyncGenerateError = datastructure::sync::Error;

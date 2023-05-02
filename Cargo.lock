@@ -3555,6 +3555,7 @@ dependencies = [
 name = "the-swarm"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "bincode",
  "clap",
  "futures",
