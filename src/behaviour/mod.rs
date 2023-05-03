@@ -5,6 +5,7 @@ use libp2p::{
     swarm::{NetworkBehaviour, ToSwarm},
     PeerId,
 };
+use rust_hashgraph::algorithm::MockSigner;
 use thiserror::Error;
 use tokio::{
     sync::{mpsc, Notify},
@@ -65,7 +66,7 @@ struct Behaviour {
     connection_events: VecDeque<ConnectionEvent>,
     // (author, tx)
     // probably will be replaced by consensus itself, since it has the same interface now
-    finalized_transactions: GraphWrapper<Vid, Sid, (), ()>,
+    finalized_transactions: GraphWrapper<Vid, Sid, MockSigner<PeerId>, ()>,
     consensus_gossip_timer: Pin<Box<Sleep>>,
 
     // error triggers?? or smth
@@ -206,9 +207,9 @@ impl NetworkBehaviour for Behaviour {
             Poll::Pending => (),
         }
 
-        let finalized_transactions = self.finalized_transactions;
+        let finalized_transactions = self.finalized_transactions.stream();
         pin_mut!(finalized_transactions);
-        match finalized_transactions.poll_next(cx) {
+        match finalized_transactions.pol(cx) {
             // handle tx's:
             // track data locations, pull assigned shards
             Poll::Ready(Some(tx)) => match tx {
