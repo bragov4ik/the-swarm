@@ -72,15 +72,15 @@ impl<TOperand, TResult> Instruction<TOperand, TResult> {
 impl<O, R> Instruction<Option<O>, R> {
     pub fn transpose_operation(self) -> Option<Instruction<O, R>> {
         match self.operation {
-            Operation::Dot(ref o) => o.transpose().map(|o| Instruction {
+            Operation::Dot(o) => o.transpose().map(|o| Instruction {
                 operation: Operation::Dot(o),
                 result: self.result,
             }),
-            Operation::Plus(ref o) => o.transpose().map(|o| Instruction {
+            Operation::Plus(o) => o.transpose().map(|o| Instruction {
                 operation: Operation::Plus(o),
                 result: self.result,
             }),
-            Operation::Inv(ref o) => o.transpose().map(|o| Instruction {
+            Operation::Inv(o) => o.transpose().map(|o| Instruction {
                 operation: Operation::Inv(o),
                 result: self.result,
             }),

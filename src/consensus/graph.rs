@@ -5,7 +5,7 @@ use std::{fmt::Debug, sync::Arc};
 use futures::Future;
 use futures::Stream;
 use libp2p::PeerId;
-use rust_hashgraph::algorithm::event::EventWrapper;
+use pin_project_lite::pin_project;
 use rust_hashgraph::algorithm::{
     datastructure::{self, EventCreateError, Graph},
     PushError,
@@ -21,16 +21,18 @@ use super::{GraphConsensus, Transaction};
 pub type SyncJobs<TDataId, TShardId> =
     datastructure::sync::Jobs<EventPayload<TDataId, TShardId>, PeerId>;
 
-pub struct GraphWrapper<TDataId, TPieceId, TSigner, TClock> {
-    // todo: replace parentheses - ()
-    inner: Graph<EventPayload<TDataId, TPieceId>, PeerId, TSigner, TClock>,
-    state_updated: Arc<Notify>,
-    included_transaction_buffer: Vec<Transaction<TDataId, TPieceId, PeerId>>,
-    retrieved_transaction_buffer: (PeerId, VecDeque<Transaction<TDataId, TPieceId, PeerId>>),
+pin_project! {
+    pub struct GraphWrapper<TDataId, TPieceId, TSigner, TClock> {
+        // todo: replace parentheses - ()
+        inner: Graph<EventPayload<TDataId, TPieceId>, PeerId, TSigner, TClock>,
+        state_updated: Arc<Notify>,
+        included_transaction_buffer: Vec<Transaction<TDataId, TPieceId, PeerId>>,
+        retrieved_transaction_buffer: (PeerId, VecDeque<Transaction<TDataId, TPieceId, PeerId>>),
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
-struct EventPayload<TDataId, TPieceId> {
+pub struct EventPayload<TDataId, TPieceId> {
     transactions: Vec<Transaction<TDataId, TPieceId, PeerId>>,
 }
 
@@ -80,9 +82,8 @@ where
             let (next_event, signature) = next_event.into_parts();
             self.inner.push_event(next_event, signature)?;
         }
-        let payload = EventPayload {
-            transactions: self.included_transaction_buffer,
-        };
+        let txs = std::mem::take(&mut self.included_transaction_buffer);
+        let payload = EventPayload { transactions: txs };
         // Retrieving the parent after applying sync, because the latest event is likely
         // to be updated there.
         let other_parent = self
@@ -97,9 +98,8 @@ where
 
     pub fn create_standalone_event(&mut self) -> Result<(), EventCreateError<PeerId>> {
         self.state_updated.notify_one();
-        let payload = EventPayload {
-            transactions: self.included_transaction_buffer,
-        };
+        let txs = std::mem::take(&mut self.included_transaction_buffer);
+        let payload = EventPayload { transactions: txs };
         let self_parent = self
             .inner
             .peer_latest_event(self.inner.self_id())
@@ -157,25 +157,26 @@ where
     type Item = (PeerId, Transaction<TDataId, TPieceId, PeerId>);
 
     fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
+        self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        let state_updated_notification = self.state_updated.notified();
+        let this = self.project();
+        let state_updated_notification = this.state_updated.notified();
         pin!(state_updated_notification);
         state_updated_notification.poll(cx);
         loop {
-            if let Some(tx) = self.retrieved_transaction_buffer.1.pop_front() {
+            if let Some(tx) = this.retrieved_transaction_buffer.1.pop_front() {
                 // feed transactions from an event one by one
-                return Poll::Ready(Some((self.retrieved_transaction_buffer.0, tx)));
+                return Poll::Ready(Some((this.retrieved_transaction_buffer.0, tx)));
             } else {
                 // no txs left in previous event, getting a new one
-                match self.inner.next_event() {
+                match this.inner.next_event() {
                     Some(event) => {
                         let author = event.author().clone();
-                        let mut txs: VecDeque<_> = event.payload().transactions.into();
+                        let mut txs: VecDeque<_> = event.payload().transactions.clone().into();
                         let next_tx = txs.pop_front();
-                        self.retrieved_transaction_buffer.0 = author;
-                        self.retrieved_transaction_buffer.1 = txs;
+                        this.retrieved_transaction_buffer.0 = author;
+                        this.retrieved_transaction_buffer.1 = txs;
                         match next_tx {
                             Some(tx) => return Poll::Ready(Some((author, tx))),
                             None => {

@@ -172,11 +172,11 @@ impl Processor<Program> for SimpleProcessor {
         &self,
         ins: Instruction<Self::Operand, Self::Result>,
     ) -> Result<Self::Operand, Self::Error> {
-        self.execute(vec![ins]).await[0]
+        self.execute(vec![ins]).await.remove(0)
     }
     async fn execute(&self, program: Program) -> Vec<Result<Self::Operand, Self::Error>> {
-        let context = HashMap::new();
-        let results = Vec::with_capacity(program.len());
+        let mut context = HashMap::new();
+        let mut results = Vec::with_capacity(program.len());
         for instruction in program {
             let Instruction {
                 operation,
@@ -187,9 +187,9 @@ impl Processor<Program> for SimpleProcessor {
                 .await
                 .and_then(|operation| {
                     let output = Self::calculate(&operation);
-                    context.insert(result_id, output.clone());
+                    context.insert(result_id.clone(), output.clone());
                     let shards = MockEncoding::encode(output)?;
-                    self.memory_access.store_local(result_id, shards);
+                    self.memory_access.store_local(result_id.clone(), shards);
                     Ok(result_id)
                 });
             results.push(result);
