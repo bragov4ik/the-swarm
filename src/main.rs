@@ -20,7 +20,7 @@ mod demo_input;
 mod encoding;
 mod handler;
 mod instruction_storage;
-mod node;
+mod behaviour;
 mod processor;
 mod protocol;
 mod types;
@@ -43,7 +43,7 @@ struct Args {
 #[behaviour(out_event = "CombinedBehaviourEvent")]
 struct CombinedBehaviour {
     // Main logic
-    main: node::Behaviour<MockConsensus<Vid>, MemoryStorage<Vid, Shard>, MockProcessor>,
+    main: behaviour::Behaviour<MockConsensus<Vid>, MemoryStorage<Vid, Shard>, MockProcessor>,
     // MDNS performs LAN node discovery, allows not to manually write peer addresses
     mdns: mdns::async_io::Behaviour,
 }
@@ -85,7 +85,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let main_behaviour = node::Behaviour::new(
+    let main_behaviour = behaviour::Behaviour::new(
         consensus,
         data_memory,
         processor,

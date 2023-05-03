@@ -307,6 +307,7 @@ where
 
     // TODO: check https://github.com/libp2p/rust-libp2p/blob/master/swarm/CHANGELOG.md#0420
     // maybe do separate behaviour for managing connections
+
     fn handle_established_inbound_connection(
         &mut self,
         _connection_id: libp2p::swarm::ConnectionId,
@@ -325,7 +326,7 @@ where
         _addr: &libp2p::Multiaddr,
         _role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        debug!("Creating new inbound connection handler");
+        debug!("Creating new out bound connection handler");
         Ok(Connection::new(10))
     }
 
