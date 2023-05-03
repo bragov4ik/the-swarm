@@ -207,9 +207,9 @@ impl NetworkBehaviour for Behaviour {
             Poll::Pending => (),
         }
 
-        let finalized_transactions = self.finalized_transactions.stream();
+        let finalized_transactions = self.finalized_transactions;
         pin_mut!(finalized_transactions);
-        match finalized_transactions.pol(cx) {
+        match finalized_transactions.poll_next(cx) {
             // handle tx's:
             // track data locations, pull assigned shards
             Poll::Ready(Some(tx)) => match tx {

@@ -2,7 +2,6 @@ use std::collections::VecDeque;
 use std::task::Poll;
 use std::{fmt::Debug, sync::Arc};
 
-use async_stream::stream;
 use futures::Future;
 use futures::Stream;
 use libp2p::PeerId;
@@ -81,9 +80,8 @@ where
             let (next_event, signature) = next_event.into_parts();
             self.inner.push_event(next_event, signature)?;
         }
-        let txs = std::mem::take(&mut self.included_transaction_buffer);
         let payload = EventPayload {
-            transactions: txs,
+            transactions: self.included_transaction_buffer,
         };
         // Retrieving the parent after applying sync, because the latest event is likely
         // to be updated there.
@@ -99,9 +97,8 @@ where
 
     pub fn create_standalone_event(&mut self) -> Result<(), EventCreateError<PeerId>> {
         self.state_updated.notify_one();
-        let txs = std::mem::take(&mut self.included_transaction_buffer);
         let payload = EventPayload {
-            transactions: txs,
+            transactions: self.included_transaction_buffer,
         };
         let self_parent = self
             .inner
@@ -110,40 +107,6 @@ where
             .clone();
         self.inner.create_event(payload, self_parent)?;
         Ok(())
-    }
-
-    pub fn stream(&mut self) -> impl Stream<Item = (PeerId, Transaction<TDataId, TPieceId, PeerId>)> + '_ {
-        stream! {
-            loop {
-                // events exhausted, wait for some updates
-                self.state_updated.notified().await;
-                loop {
-                    if let Some(tx) = self.retrieved_transaction_buffer.1.pop_front() {
-                        // feed transactions from an event one by one
-                        yield (self.retrieved_transaction_buffer.0, tx);
-                    } else {
-                        // no txs left in previous event, getting a new one
-                        match self.inner.next_event() {
-                            Some(event) => {
-                                let author = event.author().clone();
-                                let mut txs: VecDeque<_> = event.payload().transactions.clone().into();
-                                let next_tx = txs.pop_front();
-                                self.retrieved_transaction_buffer.0 = author;
-                                self.retrieved_transaction_buffer.1 = txs;
-                                match next_tx {
-                                    Some(tx) => yield (author, tx),
-                                    None => {
-                                        // more events might be available
-                                        continue;
-                                    }
-                                }
-                            }
-                            None => break,
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -181,5 +144,49 @@ where
     ) -> Result<(), Self::PushTxError> {
         self.included_transaction_buffer.push(tx);
         Ok(())
+    }
+}
+
+impl<TDataId, TPieceId, TSigner, TClock> Stream for GraphWrapper<TDataId, TPieceId, TSigner, TClock>
+where
+    TDataId: Serialize + Eq + std::hash::Hash + Debug + Clone,
+    TPieceId: Serialize + Eq + std::hash::Hash + Debug + Clone,
+    TSigner: Signer<SignerIdentity = PeerId>,
+    TClock: Clock,
+{
+    type Item = (PeerId, Transaction<TDataId, TPieceId, PeerId>);
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let state_updated_notification = self.state_updated.notified();
+        pin!(state_updated_notification);
+        state_updated_notification.poll(cx);
+        loop {
+            if let Some(tx) = self.retrieved_transaction_buffer.1.pop_front() {
+                // feed transactions from an event one by one
+                return Poll::Ready(Some((self.retrieved_transaction_buffer.0, tx)));
+            } else {
+                // no txs left in previous event, getting a new one
+                match self.inner.next_event() {
+                    Some(event) => {
+                        let author = event.author().clone();
+                        let mut txs: VecDeque<_> = event.payload().transactions.into();
+                        let next_tx = txs.pop_front();
+                        self.retrieved_transaction_buffer.0 = author;
+                        self.retrieved_transaction_buffer.1 = txs;
+                        match next_tx {
+                            Some(tx) => return Poll::Ready(Some((author, tx))),
+                            None => {
+                                // more events might be available
+                                continue;
+                            }
+                        }
+                    }
+                    None => return Poll::Pending,
+                }
+            }
+        }
     }
 }
