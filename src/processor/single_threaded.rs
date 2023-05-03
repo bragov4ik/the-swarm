@@ -160,7 +160,7 @@ pub enum Error {
     EncodingError(#[from] encoding::mock::Error),
 }
 
-type Program = Vec<Instruction<Vid, Vid>>;
+pub type Program = Vec<Instruction<Vid, Vid>>;
 
 #[async_trait]
 impl Processor<Program> for SimpleProcessor {

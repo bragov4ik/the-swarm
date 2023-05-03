@@ -14,28 +14,29 @@ use std::{fmt::Display, iter};
 use tracing::{debug, instrument, trace};
 use void::Void;
 
-use crate::types::{Graph, Shard, Vid};
+use crate::types::{GraphSync, Shard, Sid, Vid};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum Request {
-    /// "Give me a shard for this ID pls"
-    Shard(Vid),
+    /// "Give me a shard `Sid` for data `Vid` pls".
+    /// For purposes of calculation or rebuilding of data.
+    GetShard((Vid, Sid)),
+    /// "I want to store this shard that you distribute".
+    ServeShard((Vid, Sid)),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum Response {
-    /// Shard requested (or its absence: "Hey, I don't have a
-    /// shard for this ID")
-    Shard(Option<Shard>),
+    /// Shard that was requested (or its absence)
+    GetShard(Option<Shard>),
+    /// Shard that was requested (or `None` if shard `Vid, Sid` is not currently in distribution)
+    ServeShard(Option<Shard>),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum Simple {
     /// Graph state update according to consensus
-    GossipGraph(Graph),
-
-    /// "Please save this shard for this vector locally"
-    StoreShard((Vid, Shard)),
+    GossipGraph(GraphSync),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

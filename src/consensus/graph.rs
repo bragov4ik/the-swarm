@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::task::Poll;
 use std::{fmt::Debug, sync::Arc};
 
@@ -9,7 +10,8 @@ use rust_hashgraph::algorithm::{
     datastructure::{self, EventCreateError, Graph},
     PushError,
 };
-use serde::{Serialize, Deserialize};
+use rust_hashgraph::algorithm::{Clock, Signer};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::pin;
 use tokio::sync::Notify;
@@ -19,28 +21,32 @@ use super::{GraphConsensus, Transaction};
 pub type SyncJobs<TDataId, TShardId> =
     datastructure::sync::Jobs<EventPayload<TDataId, TShardId>, PeerId>;
 
-pub struct GraphWrapper<TDataId, TPieceId> {
+pub struct GraphWrapper<TDataId, TPieceId, TSigner, TClock> {
     // todo: replace parentheses - ()
-    inner: Graph<EventPayload<TDataId, TPieceId>, PeerId, (), ()>,
+    inner: Graph<EventPayload<TDataId, TPieceId>, PeerId, TSigner, TClock>,
     state_updated: Arc<Notify>,
-    transaction_buffer: Vec<Transaction<TDataId, TPieceId, PeerId>>,
+    included_transaction_buffer: Vec<Transaction<TDataId, TPieceId, PeerId>>,
+    retrieved_transaction_buffer: (PeerId, VecDeque<Transaction<TDataId, TPieceId, PeerId>>),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 struct EventPayload<TDataId, TPieceId> {
-    transacitons: Vec<Transaction<TDataId, TPieceId, PeerId>>,
+    transactions: Vec<Transaction<TDataId, TPieceId, PeerId>>,
 }
 
-impl<TDataId, TPieceId> GraphWrapper<TDataId, TPieceId> {
-    pub fn from_graph(graph: Graph<EventPayload<TDataId, TPieceId>, PeerId, (), ()>) -> Self {
+impl<TDataId, TPieceId, TSigner, TClock> GraphWrapper<TDataId, TPieceId, TSigner, TClock> {
+    pub fn from_graph(
+        graph: Graph<EventPayload<TDataId, TPieceId>, PeerId, TSigner, TClock>,
+    ) -> Self {
         Self {
             inner: graph,
             state_updated: Arc::new(Notify::new()),
-            transaction_buffer: Vec::new(),
+            included_transaction_buffer: Vec::new(),
+            retrieved_transaction_buffer: (PeerId::random(), VecDeque::new()),
         }
     }
 
-    pub fn inner(&self) -> &Graph<EventPayload<TDataId, TPieceId>, PeerId, (), ()> {
+    pub fn inner(&self) -> &Graph<EventPayload<TDataId, TPieceId>, PeerId, TSigner, TClock> {
         &self.inner
     }
 }
@@ -55,10 +61,12 @@ pub enum ApplySyncError {
     CreateError(#[from] EventCreateError<PeerId>),
 }
 
-impl<TDataId, TPieceId> GraphWrapper<TDataId, TPieceId>
+impl<TDataId, TPieceId, TSigner, TClock> GraphWrapper<TDataId, TPieceId, TSigner, TClock>
 where
     TDataId: Serialize + Eq + std::hash::Hash + Debug + Clone,
     TPieceId: Serialize + Eq + std::hash::Hash + Debug + Clone,
+    TSigner: Signer<SignerIdentity = PeerId>,
+    TClock: Clock,
 {
     pub fn apply_sync(
         &mut self,
@@ -69,10 +77,11 @@ where
             self.state_updated.notify_one();
         }
         for next_event in sync_jobs.into_linear() {
-            self.inner.push_event(next_event)?;
+            let (next_event, signature) = next_event.into_parts();
+            self.inner.push_event(next_event, signature)?;
         }
         let payload = EventPayload {
-            transacitons: self.transaction_buffer,
+            transactions: self.included_transaction_buffer,
         };
         // Retrieving the parent after applying sync, because the latest event is likely
         // to be updated there.
@@ -82,14 +91,14 @@ where
             .clone()
             .ok_or_else(|| ApplySyncError::UnknownPeer(from.clone()))?;
         self.inner.create_event(payload, other_parent.clone())?;
-        self.transaction_buffer.clear();
+        self.included_transaction_buffer.clear();
         Ok(())
     }
 
     pub fn create_standalone_event(&mut self) -> Result<(), EventCreateError<PeerId>> {
         self.state_updated.notify_one();
         let payload = EventPayload {
-            transacitons: self.transaction_buffer,
+            transactions: self.included_transaction_buffer,
         };
         let self_parent = self
             .inner
@@ -101,10 +110,13 @@ where
     }
 }
 
-impl<TDataId, TPieceId> GraphConsensus for GraphWrapper<TDataId, TPieceId>
+impl<TDataId, TPieceId, TSigner, TClock> GraphConsensus
+    for GraphWrapper<TDataId, TPieceId, TSigner, TClock>
 where
     TDataId: Serialize + Eq + std::hash::Hash + Debug + Clone,
     TPieceId: Serialize + Eq + std::hash::Hash + Debug + Clone,
+    TSigner: Signer<SignerIdentity = PeerId>,
+    TClock: Clock,
 {
     type OperandId = TDataId;
     type OperandPieceId = TPieceId;
@@ -130,17 +142,19 @@ where
         &mut self,
         tx: Transaction<Self::OperandId, Self::OperandPieceId, Self::PeerId>,
     ) -> Result<(), Self::PushTxError> {
-        self.transaction_buffer.push(tx);
+        self.included_transaction_buffer.push(tx);
         Ok(())
     }
 }
 
-impl<TDataId, TPieceId> Stream for GraphWrapper<TDataId, TPieceId>
+impl<TDataId, TPieceId, TSigner, TClock> Stream for GraphWrapper<TDataId, TPieceId, TSigner, TClock>
 where
     TDataId: Serialize + Eq + std::hash::Hash + Debug + Clone,
     TPieceId: Serialize + Eq + std::hash::Hash + Debug + Clone,
+    TSigner: Signer<SignerIdentity = PeerId>,
+    TClock: Clock,
 {
-    type Item = EventWrapper<EventPayload<TDataId, TPieceId>, PeerId>;
+    type Item = (PeerId, Transaction<TDataId, TPieceId, PeerId>);
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -148,15 +162,31 @@ where
     ) -> Poll<Option<Self::Item>> {
         let state_updated_notification = self.state_updated.notified();
         pin!(state_updated_notification);
-        match state_updated_notification.poll(cx) {
-            Poll::Ready(()) => {
-                self.state_updated.notify_one();
+        state_updated_notification.poll(cx);
+        loop {
+            if let Some(tx) = self.retrieved_transaction_buffer.1.pop_front() {
+                // feed transactions from an event one by one
+                return Poll::Ready(Some((self.retrieved_transaction_buffer.0, tx)));
+            } else {
+                // no txs left in previous event, getting a new one
                 match self.inner.next_event() {
-                    Some(event) => Poll::Ready(Some(event.clone())),
-                    None => Poll::Pending,
+                    Some(event) => {
+                        let author = event.author().clone();
+                        let mut txs: VecDeque<_> = event.payload().transactions.into();
+                        let next_tx = txs.pop_front();
+                        self.retrieved_transaction_buffer.0 = author;
+                        self.retrieved_transaction_buffer.1 = txs;
+                        match next_tx {
+                            Some(tx) => return Poll::Ready(Some((author, tx))),
+                            None => {
+                                // more events might be available
+                                continue;
+                            }
+                        }
+                    }
+                    None => return Poll::Pending,
                 }
             }
-            Poll::Pending => Poll::Pending,
         }
     }
 }

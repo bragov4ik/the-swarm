@@ -21,4 +21,4 @@ pub type Shard = [i32; 4];
 pub type Data = [i32; 12];
 
 /// Graph representation that is passed on random gossip.
-pub type Graph = SyncJobs<Vid, Sid>;
+pub type GraphSync = SyncJobs<Vid, Sid>;

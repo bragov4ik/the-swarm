@@ -92,5 +92,5 @@ pub enum Transaction<TDataId, TPieceId, TPeerId> {
     /// Indicates that specified piece (data) of operand is stored somewhere
     Stored(TDataId, TPieceId),
     /// Instruction is queued for execution by the author
-    Execute(Instruction<TDataId, TDataId>),
+    Execute(Vec<Instruction<TDataId, TDataId>>),
 }
