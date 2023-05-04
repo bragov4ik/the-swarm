@@ -182,17 +182,26 @@ impl Processor<Program> for SimpleProcessor {
                 operation,
                 result: result_id,
             } = instruction;
-            let result = self
-                .retrieve_operands(operation, &context)
-                .await
-                .and_then(|operation| {
-                    let output = Self::calculate(&operation);
-                    context.insert(result_id.clone(), output.clone());
-                    let shards = MockEncoding::encode(output)?;
-                    self.memory_access.store_local(result_id.clone(), shards);
-                    Ok(result_id)
-                });
-            results.push(result);
+            let operation = match self.retrieve_operands(operation, &context).await {
+                Ok(o) => o,
+                Err(e) => {
+                    results.push(Err(e));
+                    continue;
+                }
+            };
+            let output = Self::calculate(&operation);
+            context.insert(result_id.clone(), output.clone());
+            let shards = match MockEncoding::encode(output) {
+                Ok(s) => s,
+                Err(e) => {
+                    results.push(Err(e.into()));
+                    continue;
+                }
+            };
+            self.memory_access
+                .store_local(result_id.clone(), shards)
+                .await;
+            results.push(Ok(result_id));
         }
         results
     }
