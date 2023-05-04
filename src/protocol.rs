@@ -16,7 +16,7 @@ use void::Void;
 
 use crate::types::{GraphSync, Shard, Sid, Vid};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Request {
     /// "Give me a shard `Sid` for data `Vid` pls".
     /// For purposes of calculation or rebuilding of data.

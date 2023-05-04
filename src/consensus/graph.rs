@@ -16,7 +16,35 @@ use thiserror::Error;
 use tokio::pin;
 use tokio::sync::Notify;
 
+use crate::types::{GraphSync, Sid, Vid};
+
 use super::{GraphConsensus, Transaction};
+
+pub struct Module;
+
+impl crate::Module for Module {
+    type InEvent = InEvent;
+    type OutEvent = OutEvent;
+    type State = ();
+}
+
+pub enum OutEvent {
+    FinalizedTransaction {
+        from: PeerId,
+        tx: Transaction<Vid, Sid, PeerId>,
+    },
+    SyncReady {
+        to: PeerId,
+        sync: GraphSync,
+    },
+}
+
+pub enum InEvent {
+    ApplySync { from: PeerId, sync: GraphSync },
+    GenerateSync { to: PeerId },
+    ScheduleTx(Transaction<Vid, Sid, PeerId>),
+    CreateStandalone,
+}
 
 pub type SyncJobs<TDataId, TShardId> =
     datastructure::sync::Jobs<EventPayload<TDataId, TShardId>, PeerId>;

@@ -1,5 +1,23 @@
 use futures::Stream;
 
+use crate::processor::single_threaded::Program;
+
+pub struct Module;
+
+impl crate::Module for Module {
+    type InEvent = InEvent;
+    type OutEvent = OutEvent;
+    type State = ();
+}
+
+pub enum OutEvent {
+    NextProgram(Program),
+}
+
+pub enum InEvent {
+    FinalizedProgram(Program),
+}
+
 pub trait InstructionMemory: Stream<Item = Self::Program> {
     type Error: std::fmt::Debug;
     type Program;

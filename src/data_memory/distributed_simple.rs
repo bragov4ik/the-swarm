@@ -1,12 +1,59 @@
 use std::collections::HashMap;
 
-use futures::Stream;
 use libp2p::PeerId;
 use tokio::sync::mpsc;
 
-use crate::types::{Shard, Sid, Vid};
+use crate::types::{Data, Shard, Sid, Vid};
 
 use super::DataMemory;
+
+pub struct Module;
+
+impl crate::Module for Module {
+    type InEvent = InEvent;
+    type OutEvent = OutEvent;
+    type State = ();
+}
+
+pub enum OutEvent {
+    PreparedForService {
+        data_id: Vid,
+        distribution: Vec<(PeerId, Sid)>,
+    },
+    ServedPiece(super::FullPieceId<DistributedDataMemory>, Option<Shard>),
+    AssignedEvent {
+        full_piece_id: super::FullPieceId<DistributedDataMemory>,
+        data: Option<Shard>,
+    },
+}
+
+pub enum InEvent {
+    // Will store the location & set piece as successfully served if applicable
+    TrackLocation {
+        full_piece_id: super::FullPieceId<DistributedDataMemory>,
+        location: PeerId,
+    },
+    // initial distribution
+    PrepareForService {
+        data_id: Vid,
+        data: Data,
+    },
+    ServePiece(super::FullPieceId<DistributedDataMemory>),
+
+    // assigned
+    StoreAssigned {
+        full_piece_id: super::FullPieceId<DistributedDataMemory>,
+        data: Shard,
+    },
+    GetAssigned(super::FullPieceId<DistributedDataMemory>),
+
+    HandleRequested {
+        data_id: Vid,
+        shard_id: Sid,
+        piece: Shard,
+    },
+}
+
 pub struct DistributedDataMemory {
     data_locations: HashMap<Vid, Vec<(Sid, PeerId)>>,
     local_storage: HashMap<Vid, (Sid, Vid)>,

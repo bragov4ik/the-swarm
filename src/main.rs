@@ -56,6 +56,22 @@ enum CombinedBehaviourEvent {
     Mdns(mdns::Event),
 }
 
+pub trait Module {
+    type InEvent;
+    type OutEvent;
+    type State: State;
+}
+
+pub trait State {
+    fn accepts_input(&self) -> bool;
+}
+
+impl State for () {
+    fn accepts_input(&self) -> bool {
+        true
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // let format = tracing_subscriber::fmt::format();

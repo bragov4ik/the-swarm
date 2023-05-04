@@ -11,6 +11,36 @@ use crate::{
 
 use super::{instruction::Instruction, BinaryOp, Operation, Processor, UnaryOp};
 
+pub struct Module;
+
+impl crate::Module for Module {
+    type InEvent = InEvent;
+    type OutEvent = OutEvent;
+    type State = State;
+}
+
+pub enum OutEvent {
+    FinishedExecution { results: Vec<Result<Vid, Error>> },
+}
+
+pub enum InEvent {
+    Execute(Program),
+}
+
+pub enum State {
+    Ready,
+    Executing,
+}
+
+impl crate::State for State {
+    fn accepts_input(&self) -> bool {
+        match self {
+            State::Ready => true,
+            State::Executing => false,
+        }
+    }
+}
+
 pub struct Settings {
     pub data_pieces_total: u64,
     pub data_pieces_sufficient: u64,
