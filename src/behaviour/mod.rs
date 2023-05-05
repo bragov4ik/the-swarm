@@ -502,13 +502,16 @@ impl NetworkBehaviour for Behaviour {
                         }
                         // take a note that `(data_id, piece_id)` is stored at `location`
                         Transaction::Stored(data_id, piece_id) => todo!(),
-                        Transaction::Execute(p) => {
-                            let programs_to_run_send = self.programs_to_run.sender.send(p);
+                        Transaction::Execute(program) => {
+                            let programs_to_run_send = self
+                                .instruction_memory
+                                .input
+                                .send(instruction_storage::InEvent::FinalizedProgram(program));
                             pin_mut!(programs_to_run_send);
                             match programs_to_run_send.poll(cx) {
                                 Poll::Ready(Ok(_)) => (),
-                                Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `programs_to_run` was closed, but it's owned by us. it's a bug."),
-                                Poll::Pending => cant_operate_error_return!("`programs_to_run` queue is full, probably mistake code with tasks priority. continuing will skip a transaction, which is unacceptable."),
+                                Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `instruction_memory.input` was closed. cannot operate without this module."),
+                                Poll::Pending => cant_operate_error_return!("`instruction_memory.input` queue is full. continue will skip a transaction, which is unacceptable."),
                             }
                         }
                     }
