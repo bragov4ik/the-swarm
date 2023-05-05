@@ -289,7 +289,7 @@ impl NetworkBehaviour for Behaviour {
                                 .or_default();
                             peers_waiting.push(s.peer_id);
                         }
-                        ConnectionReceived::Response( protocol::Request::ServeShard(full_shard_id), protocol::Response::ServeShard(shard)) => {
+                        ConnectionReceived::Response(protocol::Request::ServeShard(full_shard_id), protocol::Response::ServeShard(shard)) => {
                             match shard {
                                 Some(shard) => {
                                     let send_future = self.data_memory.input.send(
@@ -305,7 +305,7 @@ impl NetworkBehaviour for Behaviour {
                                 None => warn!("Peer that announced event distribution doesn't have shard assigned to us. Strange but ok."),
                             }
                         },
-                        ConnectionReceived::Response( protocol::Request::GetShard(full_shard_id), protocol::Response::GetShard(shard)) => {
+                        ConnectionReceived::Response(protocol::Request::GetShard(full_shard_id), protocol::Response::GetShard(shard)) => {
                             match shard {
                                 Some(shard) => {
                                     let send_future = self.data_memory.input.send(
@@ -322,7 +322,17 @@ impl NetworkBehaviour for Behaviour {
                             }
                         },
                         ConnectionReceived::Response( _, _ ) => warn!("Unmatched response, need to recheck what to do in this case"),
-                        ConnectionReceived::Simple(_) => todo!(),
+                        ConnectionReceived::Simple(protocol::Simple::GossipGraph(sync)) => {
+                            let send_future = self.consensus.input.send(
+                                consensus::graph::InEvent::ApplySync { from: s.peer_id, sync }
+                            );
+                            pin_mut!(send_future);
+                            match send_future.poll(cx) {
+                                Poll::Ready(Ok(_)) => (),
+                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                                Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will apply received sync. for now fail fast to see this."),
+                            }
+                        },
                     }
                     continue;
                 }
@@ -344,11 +354,14 @@ impl NetworkBehaviour for Behaviour {
                         // on too many errors
                         handler::ConnectionError::Timeout => {}
                         // Fail fast
-                        handler::ConnectionError::Other(err) => cant_operate_error_return!(
-                            "Connection to {} returned error {:?}",
-                            e.peer_id,
-                            err
-                        ),
+                        handler::ConnectionError::Other(err) => {
+                            // Fail fast
+                            error!("Connection to {} returned error {:?}", e.peer_id, err);
+                            return Poll::Ready(ToSwarm::CloseConnection {
+                                peer_id: e.peer_id,
+                                connection: libp2p::swarm::CloseConnection::One(e.connection),
+                            });
+                        }
                     }
                     continue;
                 }
@@ -435,8 +448,8 @@ impl NetworkBehaviour for Behaviour {
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
                         Poll::Ready(Ok(_)) => (),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on. for now fail fast to see this."),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
+                        Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
                     }
                 },
             },
@@ -456,6 +469,15 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Ready(Ok(_)) => (),
                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
+                    }
+                    let send_future = self.user_interaction.output.send(
+                        module::OutEvent::ScheduleOk
+                    );
+                    pin_mut!(send_future);
+                    match send_future.poll(cx) {
+                        Poll::Ready(Ok(_)) => (),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
+                        Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
                     }
                 },
                 module::InEvent::Get(data_id) => {
