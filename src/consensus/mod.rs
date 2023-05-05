@@ -34,7 +34,8 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 
-use crate::processor::Instruction;
+use crate::processor::Program;
+use crate::types::Hash;
 
 pub mod graph;
 // pub mod mock;
@@ -91,6 +92,8 @@ pub enum Transaction<TDataId, TPieceId, TPeerId> {
     },
     /// Indicates that specified piece (data) of operand is stored somewhere
     Stored(TDataId, TPieceId),
-    /// Instruction is queued for execution by the author
-    Execute(Vec<Instruction<TDataId, TDataId>>),
+    /// Program is queued for execution by the author
+    Execute(Program),
+    /// Program was fully executed by this peer
+    Executed(Hash),
 }

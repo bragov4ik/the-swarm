@@ -3252,6 +3252,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-big-array"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11fc7cc2c76d73e0f27ee52abbd64eec84d46f370c88371120433196934e4b7f"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_derive"
 version = "1.0.159"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3557,6 +3566,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bincode",
+ "blake2",
  "clap",
  "futures",
  "libp2p",
@@ -3564,6 +3574,7 @@ dependencies = [
  "rand 0.8.5",
  "rust-hashgraph",
  "serde",
+ "serde-big-array 0.5.1",
  "serde_json",
  "thiserror",
  "tokio",

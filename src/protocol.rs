@@ -21,7 +21,7 @@ pub enum Request {
     /// "Give me a shard `Sid` for data `Vid` pls".
     /// For purposes of calculation or rebuilding of data.
     GetShard((Vid, Sid)),
-    /// "I want to store this shard that you distribute".
+    /// "I want to store this shard that you distribute, please give it to me".
     ServeShard((Vid, Sid)),
 }
 

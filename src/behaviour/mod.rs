@@ -45,7 +45,7 @@ pub enum Error {
 
 mod module {
     use crate::{
-        processor::single_threaded::Program,
+        processor::Program,
         types::{Data, Vid},
     };
 
@@ -70,11 +70,6 @@ mod module {
         GetResponse(Vid, Data),
         PutConfirmed(Vid),
     }
-}
-
-// serve piece, recieve piece, recieve gossip,
-enum NetworkRequest {
-    ServePiece,
 }
 
 struct ConnectionEvent {
@@ -263,7 +258,7 @@ impl NetworkBehaviour for Behaviour {
                             match request.clone() {
                                 protocol::Request::ServeShard((data_id, piece_id)) => {
                                     let send_future = self.data_memory.input.send(
-                                        distributed_simple::InEvent::ServePiece((
+                                        distributed_simple::InEvent::ServePieceRequest((
                                             data_id, piece_id,
                                         )),
                                     );
@@ -275,7 +270,17 @@ impl NetworkBehaviour for Behaviour {
                                     }
                                 }
                                 protocol::Request::GetShard((data_id, piece_id)) => {
-                                    todo!()
+                                    let send_future = self.data_memory.input.send(
+                                        distributed_simple::InEvent::GetAssigned((
+                                            data_id, piece_id,
+                                        )),
+                                    );
+                                    pin_mut!(send_future);
+                                    match send_future.poll(cx) {
+                                        Poll::Ready(Ok(_)) => (),
+                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will ignore some peer's request, which is unacceptable (?)."),
+                                    }
                                 }
                             }
                             let peers_waiting = self
@@ -360,9 +365,9 @@ impl NetworkBehaviour for Behaviour {
 
         match self.data_memory.output.poll_recv(cx) {
             Poll::Ready(Some(event)) => match event {
-                distributed_simple::OutEvent::ServedPiece((data_id, shard_id), shard) => {
+                distributed_simple::OutEvent::ServePieceResponse(full_piece_id, shard) => {
                     let waiting_peers = self.currently_processed_requests.remove(
-                        &protocol::Request::ServeShard((data_id, shard_id))
+                        &protocol::Request::ServeShard(full_piece_id)
                     ).unwrap_or_default();
                     let mut new_notifications = waiting_peers.into_iter()
                         .map(|peer_id| ToSwarm::NotifyHandler {
@@ -383,10 +388,24 @@ impl NetworkBehaviour for Behaviour {
                     match send_future.poll(cx) {
                         Poll::Ready(Ok(_)) => (),
                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on. for now fail fast to see this."),
+                        Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on storing shard. for now fail fast to see this."),
                     }
                 }
-                distributed_simple::OutEvent::AssignedEvent { full_piece_id, shard: data } => todo!(),
+                distributed_simple::OutEvent::AssignedPiece { full_piece_id, shard } => {
+                    let waiting_peers = self.currently_processed_requests.remove(
+                        &protocol::Request::GetShard(full_piece_id)
+                    ).unwrap_or_default();
+                    let mut new_notifications = waiting_peers.into_iter()
+                        .map(|peer_id| ToSwarm::NotifyHandler {
+                            peer_id,
+                            handler: NotifyHandler::Any,
+                            event: handler::IncomingEvent::SendResponse(protocol::Response::GetShard(shard))
+                        });
+                    if let Some(next_notification) = new_notifications.next() {
+                        self.to_notify.extend(new_notifications);
+                        return Poll::Ready(next_notification);
+                    };
+                },
                 distributed_simple::OutEvent::PreparedForService { data_id, distribution } => {
                     let send_future = self.consensus.input.send(
                         consensus::graph::InEvent::ScheduleTx(Transaction::StorageRequest { address: data_id, distribution })
@@ -467,9 +486,17 @@ impl NetworkBehaviour for Behaviour {
         }
 
         match self.processor.output.poll_recv(cx) {
-            Poll::Ready(Some(single_threaded::OutEvent::FinishedExecution{ results: _ })) => {
-                // todo add hash?
-                info!("Executed program {}", 0);
+            Poll::Ready(Some(single_threaded::OutEvent::FinishedExecution { program_hash, results })) => {
+                debug!("Finished executing program {}\nResults: {:?}", program_hash.clone(), results);
+                let send_future = self.consensus.input.send(
+                    consensus::graph::InEvent::ScheduleTx(Transaction::Executed(program_hash))
+                );
+                pin_mut!(send_future);
+                match send_future.poll(cx) {
+                    Poll::Ready(Ok(_)) => (),
+                    Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                    Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
+                }
             }
             Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),
             Poll::Pending => (),
@@ -542,6 +569,20 @@ impl NetworkBehaviour for Behaviour {
                                 Poll::Ready(Ok(_)) => (),
                                 Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `instruction_memory.input` was closed. cannot operate without this module."),
                                 Poll::Pending => cant_operate_error_return!("`instruction_memory.input` queue is full. continue will skip a transaction, which is unacceptable."),
+                            }
+                        }
+                        Transaction::Executed(program_hash) => {
+                            let send_future = self.instruction_memory.input.send(
+                                instruction_storage::InEvent::ExecutedProgram {
+                                    peer: from,
+                                    program: program_hash,
+                                },
+                            );
+                            pin_mut!(send_future);
+                            match send_future.poll(cx) {
+                                Poll::Ready(Ok(_)) => (),
+                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `instruction_memory.input` was closed. cannot operate without this module."),
+                                Poll::Pending => cant_operate_error_return!("`instruction_memory.input` queue is full. continue will mess with confirmation of program execution, which is unacceptable."),
                             }
                         }
                     }

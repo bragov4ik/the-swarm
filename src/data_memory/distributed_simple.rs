@@ -16,23 +16,31 @@ impl crate::Module for Module {
 }
 
 pub enum OutEvent {
+    // initial distribution
+    /// Ready to answer to `ServePiece` and decided distribution of shards
+    /// accross peers
     PreparedForService {
         data_id: Vid,
         distribution: Vec<(PeerId, Sid)>,
     },
-    ServedPiece(super::FullPieceId<DistributedDataMemory>, Option<Shard>),
+    ServePieceResponse(super::FullPieceId<DistributedDataMemory>, Option<Shard>),
+
     // assigned
+    /// Successfully stored newly assigned shard
     AssignedStoreSuccess(super::FullPieceId<DistributedDataMemory>),
-    AssignedEvent {
+    /// Give requested assigned piece
+    AssignedPiece {
         full_piece_id: super::FullPieceId<DistributedDataMemory>,
         shard: Option<Shard>,
     },
 
     // data recollection
+    /// Need the piece from peer `location`
     RequestAssigned {
         full_piece_id: super::FullPieceId<DistributedDataMemory>,
         location: PeerId,
     },
+    /// Successfully assembled data, ready to provide it to the user
     FinishedRecollection {
         data_id: Vid,
         data: Data,
@@ -40,18 +48,17 @@ pub enum OutEvent {
 }
 
 pub enum InEvent {
+    // initial distribution
     // will store the location & set piece as successfully served if applicable
     TrackLocation {
         full_piece_id: super::FullPieceId<DistributedDataMemory>,
         location: PeerId,
     },
-
-    // initial distribution
     PrepareForService {
         data_id: Vid,
         data: Data,
     },
-    ServePiece(super::FullPieceId<DistributedDataMemory>),
+    ServePieceRequest(super::FullPieceId<DistributedDataMemory>),
 
     // assigned
     StoreAssigned {
@@ -62,6 +69,7 @@ pub enum InEvent {
 
     // data recollection
     RecollectData(Vid),
+
     HandleRequested {
         full_piece_id: super::FullPieceId<DistributedDataMemory>,
         piece: Shard,

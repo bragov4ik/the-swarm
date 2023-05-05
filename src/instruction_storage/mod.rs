@@ -1,6 +1,8 @@
 use futures::Stream;
+use libp2p::PeerId;
 
-use crate::processor::single_threaded::Program;
+use crate::processor::Program;
+use crate::types::Hash;
 
 pub struct Module;
 
@@ -16,6 +18,11 @@ pub enum OutEvent {
 
 pub enum InEvent {
     FinalizedProgram(Program),
+    /// Track completion of programs (`k` found - success)
+    ExecutedProgram {
+        peer: PeerId,
+        program: Hash,
+    },
 }
 
 pub trait InstructionMemory: Stream<Item = Self::Program> {

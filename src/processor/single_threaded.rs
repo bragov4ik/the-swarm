@@ -6,10 +6,10 @@ use tokio::{join, sync::mpsc};
 
 use crate::{
     encoding::{self, mock::MockEncoding, DataEncoding},
-    types::{Data, Shard, Vid},
+    types::{Data, Hash, Shard, Vid},
 };
 
-use super::{instruction::Instruction, BinaryOp, Operation, Processor, UnaryOp};
+use super::{instruction::Instruction, BinaryOp, Operation, Processor, Program, UnaryOp};
 
 pub struct Module;
 
@@ -20,7 +20,10 @@ impl crate::Module for Module {
 }
 
 pub enum OutEvent {
-    FinishedExecution { results: Vec<Result<Vid, Error>> },
+    FinishedExecution {
+        program_hash: Hash,
+        results: Vec<Result<Vid, Error>>,
+    },
 }
 
 pub enum InEvent {
@@ -189,8 +192,6 @@ pub enum Error {
     EncodingError(#[from] encoding::mock::Error),
 }
 
-pub type Program = Vec<Instruction<Vid, Vid>>;
-
 #[async_trait]
 impl Processor<Program> for SimpleProcessor {
     type Error = Error;
@@ -201,11 +202,11 @@ impl Processor<Program> for SimpleProcessor {
         &self,
         ins: Instruction<Self::Operand, Self::Result>,
     ) -> Result<Self::Operand, Self::Error> {
-        self.execute(vec![ins]).await.remove(0)
+        self.execute(vec![ins].into()).await.remove(0)
     }
     async fn execute(&self, program: Program) -> Vec<Result<Self::Operand, Self::Error>> {
         let mut context = HashMap::new();
-        let mut results = Vec::with_capacity(program.len());
+        let mut results = Vec::with_capacity(program.instructions().len());
         for instruction in program {
             let Instruction {
                 operation,
