@@ -107,7 +107,7 @@ pub struct ModuleChannelClient<M: Module> {
 
 impl<M: Module> ModuleChannelClient<M> {
     fn accepts_input(&self) -> bool {
-        let Some(state) = self.state else {
+        let Some(state) = &self.state else {
             return true
         };
         let Ok(state) = state.try_lock() else {
@@ -290,7 +290,7 @@ impl NetworkBehaviour for Behaviour {
                 Some(s) => {
                     match s.event {
                         ConnectionReceived::Request(request) => {
-                            match request {
+                            match request.clone() {
                                 protocol::Request::ServeShard((data_id, piece_id)) => {
                                     let send_future = self.data_memory.input.send(
                                         distributed_simple::InEvent::ServePiece((
@@ -394,7 +394,7 @@ impl NetworkBehaviour for Behaviour {
                     let waiting_peers = self.currently_processed_requests.remove(
                         &protocol::Request::ServeShard((data_id, shard_id))
                     ).unwrap_or_default();
-                    let new_notifications = waiting_peers.into_iter()
+                    let mut new_notifications = waiting_peers.into_iter()
                         .map(|peer_id| ToSwarm::NotifyHandler {
                             peer_id,
                             handler: NotifyHandler::Any,
