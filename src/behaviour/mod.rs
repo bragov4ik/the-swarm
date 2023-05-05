@@ -33,8 +33,6 @@ use crate::{
     protocol, Module, State,
 };
 
-use self::execution::Execution;
-
 pub type OutEvent = Result<Event, Error>;
 
 pub enum Event {}
@@ -148,32 +146,6 @@ struct Behaviour {
     state_updated: Arc<Notify>,
 }
 
-mod execution {
-    use futures::Stream;
-
-    use crate::processor::single_threaded::Program;
-
-    pub struct Execution {}
-
-    impl Stream for Execution {
-        // return hash of executed program???
-        type Item = ();
-
-        fn poll_next(
-            self: std::pin::Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Option<Self::Item>> {
-            todo!()
-        }
-    }
-
-    impl Execution {
-        pub fn initiate(&mut self, program: Program) -> Result<(), ()> {
-            todo!()
-        }
-    }
-}
-
 impl Behaviour {
     /// None if none connected
     fn get_random_peer(&mut self) -> Option<PeerId> {
@@ -281,7 +253,7 @@ impl NetworkBehaviour for Behaviour {
             let state_updated_notification = self.state_updated.notified();
             pin_mut!(state_updated_notification);
             // Maybe break on Pending?
-            state_updated_notification.poll(cx);
+            let _ = state_updated_notification.poll(cx);
 
             match self.connection_events.pop_back() {
                 // serve piece, recieve piece, recieve gossip,

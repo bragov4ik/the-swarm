@@ -95,7 +95,6 @@ impl MemoryBus {
 }
 
 pub struct SimpleProcessor {
-    settings: Settings,
     memory_access: MemoryBus,
 }
 fn map_zip<T, const N: usize, F>(a: &[T; N], b: &[T; N], f: F) -> [T; N]
@@ -228,9 +227,14 @@ impl Processor<Program> for SimpleProcessor {
                     continue;
                 }
             };
-            self.memory_access
+            if let Err(e) = self
+                .memory_access
                 .store_local(result_id.clone(), shards)
-                .await;
+                .await
+            {
+                results.push(Err(e));
+                continue;
+            };
             results.push(Ok(result_id));
         }
         results

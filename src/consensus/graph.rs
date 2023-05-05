@@ -191,7 +191,7 @@ where
         let this = self.project();
         let state_updated_notification = this.state_updated.notified();
         pin!(state_updated_notification);
-        state_updated_notification.poll(cx);
+        let _ = state_updated_notification.poll(cx);
         loop {
             if let Some(tx) = this.retrieved_transaction_buffer.1.pop_front() {
                 // feed transactions from an event one by one

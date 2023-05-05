@@ -21,7 +21,7 @@ use libp2p::PeerId;
 // pub mod mock;
 pub mod distributed_simple;
 
-pub type FullPieceId<D: DataMemory> = (D::DataId, D::PieceId);
+pub type FullPieceId<D> = (<D as DataMemory>::DataId, <D as DataMemory>::PieceId);
 
 pub trait DataMemory {
     type Error: Debug;
