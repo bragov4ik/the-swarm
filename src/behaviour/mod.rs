@@ -501,7 +501,20 @@ impl NetworkBehaviour for Behaviour {
                             }
                         }
                         // take a note that `(data_id, piece_id)` is stored at `location`
-                        Transaction::Stored(data_id, piece_id) => todo!(),
+                        Transaction::Stored(data_id, piece_id) => {
+                            let send_future = self.data_memory.input.send(
+                                distributed_simple::InEvent::TrackLocation {
+                                    full_piece_id: (data_id, piece_id),
+                                    location: from,
+                                },
+                            );
+                            pin_mut!(send_future);
+                            match send_future.poll(cx) {
+                                Poll::Ready(Ok(_)) => (),
+                                Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will lose track of stored pieces."),
+                            }
+                        }
                         Transaction::Execute(program) => {
                             let programs_to_run_send = self
                                 .instruction_memory
