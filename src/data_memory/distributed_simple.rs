@@ -21,6 +21,8 @@ pub enum OutEvent {
         distribution: Vec<(PeerId, Sid)>,
     },
     ServedPiece(super::FullPieceId<DistributedDataMemory>, Option<Shard>),
+    // assigned
+    AssignedStoreSuccess(super::FullPieceId<DistributedDataMemory>),
     AssignedEvent {
         full_piece_id: super::FullPieceId<DistributedDataMemory>,
         data: Option<Shard>,
