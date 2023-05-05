@@ -25,16 +25,27 @@ pub enum OutEvent {
     AssignedStoreSuccess(super::FullPieceId<DistributedDataMemory>),
     AssignedEvent {
         full_piece_id: super::FullPieceId<DistributedDataMemory>,
-        data: Option<Shard>,
+        shard: Option<Shard>,
+    },
+
+    // data recollection
+    RequestAssigned {
+        full_piece_id: super::FullPieceId<DistributedDataMemory>,
+        location: PeerId,
+    },
+    FinishedRecollection {
+        data_id: Vid,
+        data: Data,
     },
 }
 
 pub enum InEvent {
-    // Will store the location & set piece as successfully served if applicable
+    // will store the location & set piece as successfully served if applicable
     TrackLocation {
         full_piece_id: super::FullPieceId<DistributedDataMemory>,
         location: PeerId,
     },
+
     // initial distribution
     PrepareForService {
         data_id: Vid,
@@ -45,13 +56,14 @@ pub enum InEvent {
     // assigned
     StoreAssigned {
         full_piece_id: super::FullPieceId<DistributedDataMemory>,
-        data: Shard,
+        shard: Shard,
     },
     GetAssigned(super::FullPieceId<DistributedDataMemory>),
 
+    // data recollection
+    RecollectData(Vid),
     HandleRequested {
-        data_id: Vid,
-        shard_id: Sid,
+        full_piece_id: super::FullPieceId<DistributedDataMemory>,
         piece: Shard,
     },
 }

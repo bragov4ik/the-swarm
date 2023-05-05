@@ -314,11 +314,11 @@ impl NetworkBehaviour for Behaviour {
                                 .or_default();
                             peers_waiting.push(s.peer_id);
                         }
-                        ConnectionReceived::Response( protocol::Request::ServeShard(request), protocol::Response::ServeShard(shard)) => {
+                        ConnectionReceived::Response( protocol::Request::ServeShard(full_piece_id), protocol::Response::ServeShard(shard)) => {
                             match shard {
                                 Some(shard) => {
                                     let send_future = self.data_memory.input.send(
-                                        distributed_simple::InEvent::StoreAssigned{ full_piece_id: request, data: shard }
+                                        distributed_simple::InEvent::StoreAssigned{ full_piece_id, shard }
                                     );
                                     pin_mut!(send_future);
                                     match send_future.poll(cx) {
@@ -327,10 +327,25 @@ impl NetworkBehaviour for Behaviour {
                                         Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard piece served, which is not cool (?). at least it is in development"),
                                     }
                                 },
-                                None => warn!("Peer that announced peer distribution doesn't have shard assigned to us. Strange but ok."),
+                                None => warn!("Peer that announced event distribution doesn't have shard assigned to us. Strange but ok."),
                             }
                         },
-                        ConnectionReceived::Response( protocol::Request::GetShard(request), protocol::Response::GetShard(shard)) => todo!(),
+                        ConnectionReceived::Response( protocol::Request::GetShard(full_piece_id), protocol::Response::GetShard(shard)) => {
+                            match shard {
+                                Some(shard) => {
+                                    let send_future = self.data_memory.input.send(
+                                        distributed_simple::InEvent::HandleRequested { full_piece_id, piece: shard }
+                                    );
+                                    pin_mut!(send_future);
+                                    match send_future.poll(cx) {
+                                        Poll::Ready(Ok(_)) => (),
+                                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard piece served, which is not cool (?). at least it is in development"),
+                                    }
+                                },
+                                None => warn!("Peer that announced that it stores assigned piece doesn't have it. Misbehaviour??"),
+                            }
+                        },
                         ConnectionReceived::Response( _, _ ) => warn!("Unmatched response, need to recheck what to do in this case"),
                         ConnectionReceived::Simple(_) => todo!(),
                     }
@@ -387,7 +402,7 @@ impl NetworkBehaviour for Behaviour {
                         });
                     if let Some(next_notification) = new_notifications.next() {
                         self.to_notify.extend(new_notifications);
-                        return   Poll::Ready(next_notification);
+                        return Poll::Ready(next_notification);
                     };
                 },
                 distributed_simple::OutEvent::AssignedStoreSuccess(full_piece_id) => {
@@ -401,7 +416,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on. for now fail fast to see this."),
                     }
                 }
-                distributed_simple::OutEvent::AssignedEvent { full_piece_id, data } => todo!(),
+                distributed_simple::OutEvent::AssignedEvent { full_piece_id, shard: data } => todo!(),
                 distributed_simple::OutEvent::PreparedForService { data_id, distribution } => {
                     let send_future = self.consensus.input.send(
                         consensus::graph::InEvent::ScheduleTx(Transaction::StorageRequest { address: data_id, distribution })
@@ -411,6 +426,28 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Ready(Ok(_)) => (),
                         Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
+                    }
+                },
+                distributed_simple::OutEvent::RequestAssigned { full_piece_id, location } => {
+                    return Poll::Ready(ToSwarm::NotifyHandler {
+                        peer_id: location,
+                        handler: NotifyHandler::Any,
+                        event: handler::IncomingEvent::SendPrimary(
+                            protocol::Primary::Request(protocol::Request::GetShard(
+                                full_piece_id,
+                            )),
+                        ),
+                    });
+                }
+                distributed_simple::OutEvent::FinishedRecollection { data_id, data } => {
+                    let send_future = self.user_interaction.output.send(
+                        module::OutEvent::GetResponse(data_id, data)
+                    );
+                    pin_mut!(send_future);
+                    match send_future.poll(cx) {
+                        Poll::Ready(Ok(_)) => (),
+                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                        Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on. for now fail fast to see this."),
                     }
                 },
             },
@@ -432,7 +469,17 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
                     }
                 },
-                module::InEvent::Get(_) => todo!(),
+                module::InEvent::Get(data_id) => {
+                    let send_future = self.data_memory.input.send(
+                        distributed_simple::InEvent::RecollectData(data_id)
+                    );
+                    pin_mut!(send_future);
+                    match send_future.poll(cx) {
+                        Poll::Ready(Ok(_)) => (),
+                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
+                    }
+                },
                 module::InEvent::Put(data_id, data) => {
                     let send_future = self.data_memory.input.send(
                         distributed_simple::InEvent::PrepareForService { data_id, data }
