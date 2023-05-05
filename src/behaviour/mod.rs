@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use futures::{pin_mut, Future, Stream};
+use futures::{pin_mut, Future};
 use libp2p::{
     swarm::{
         derive_prelude::ConnectionEstablished, ConnectionClosed, FromSwarm, NetworkBehaviour,
@@ -16,7 +16,7 @@ use libp2p::{
     PeerId,
 };
 use rand::Rng;
-use rust_hashgraph::algorithm::MockSigner;
+
 use thiserror::Error;
 use tokio::{
     sync::{mpsc, Notify},
@@ -26,13 +26,11 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     consensus::{self, Transaction},
-    data_memory::{self, distributed_simple},
+    data_memory::distributed_simple,
     handler::{self, Connection, ConnectionReceived},
     instruction_storage,
-    processor::single_threaded::{self, Program},
-    protocol,
-    types::{Data, GraphSync, Sid, Vid},
-    Module, State,
+    processor::single_threaded::{self},
+    protocol, Module, State,
 };
 
 use self::execution::Execution;
@@ -300,7 +298,7 @@ impl NetworkBehaviour for Behaviour {
                                     pin_mut!(send_future);
                                     match send_future.poll(cx) {
                                         Poll::Ready(Ok(_)) => (),
-                                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
                                         Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will ignore some peer's request, which is unacceptable (?)."),
                                     }
                                 }
@@ -323,7 +321,7 @@ impl NetworkBehaviour for Behaviour {
                                     pin_mut!(send_future);
                                     match send_future.poll(cx) {
                                         Poll::Ready(Ok(_)) => (),
-                                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
                                         Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard piece served, which is not cool (?). at least it is in development"),
                                     }
                                 },
@@ -339,7 +337,7 @@ impl NetworkBehaviour for Behaviour {
                                     pin_mut!(send_future);
                                     match send_future.poll(cx) {
                                         Poll::Ready(Ok(_)) => (),
-                                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
                                         Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard piece served, which is not cool (?). at least it is in development"),
                                     }
                                 },
@@ -412,7 +410,7 @@ impl NetworkBehaviour for Behaviour {
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
                         Poll::Ready(Ok(_)) => (),
-                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on. for now fail fast to see this."),
                     }
                 }
@@ -424,7 +422,7 @@ impl NetworkBehaviour for Behaviour {
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
                         Poll::Ready(Ok(_)) => (),
-                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
                     }
                 },
@@ -446,7 +444,7 @@ impl NetworkBehaviour for Behaviour {
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
                         Poll::Ready(Ok(_)) => (),
-                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on. for now fail fast to see this."),
                     }
                 },
@@ -465,7 +463,7 @@ impl NetworkBehaviour for Behaviour {
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
                         Poll::Ready(Ok(_)) => (),
-                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
                     }
                 },
@@ -476,7 +474,7 @@ impl NetworkBehaviour for Behaviour {
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
                         Poll::Ready(Ok(_)) => (),
-                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
                     }
                 },
@@ -487,7 +485,7 @@ impl NetworkBehaviour for Behaviour {
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
                         Poll::Ready(Ok(_)) => (),
-                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
                     }
                 },
@@ -512,7 +510,7 @@ impl NetworkBehaviour for Behaviour {
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
                         Poll::Ready(Ok(_)) => (),
-                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `processor.input` was closed. cannot operate without this module."),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `processor.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`processor.input` queue is full. continuing will skip a program for execution, which is unacceptable."),
                     }
                 }
@@ -558,19 +556,19 @@ impl NetworkBehaviour for Behaviour {
                             pin_mut!(send_future);
                             match send_future.poll(cx) {
                                 Poll::Ready(Ok(_)) => (),
-                                Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
                                 Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will lose track of stored pieces."),
                             }
                         }
                         Transaction::Execute(program) => {
-                            let programs_to_run_send = self
+                            let send_future = self
                                 .instruction_memory
                                 .input
                                 .send(instruction_storage::InEvent::FinalizedProgram(program));
-                            pin_mut!(programs_to_run_send);
-                            match programs_to_run_send.poll(cx) {
+                            pin_mut!(send_future);
+                            match send_future.poll(cx) {
                                 Poll::Ready(Ok(_)) => (),
-                                Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `instruction_memory.input` was closed. cannot operate without this module."),
+                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `instruction_memory.input` was closed. cannot operate without this module."),
                                 Poll::Pending => cant_operate_error_return!("`instruction_memory.input` queue is full. continue will skip a transaction, which is unacceptable."),
                             }
                         }
@@ -606,7 +604,7 @@ impl NetworkBehaviour for Behaviour {
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
                         Poll::Ready(Ok(_)) => (),
-                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => warn!("`consensus.input` queue is full. skipping random gossip. it's ok for a few times, but repeated skips are concerning, as it is likely to worsen distributed system responsiveness"),
                     }
                 } else {
