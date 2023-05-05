@@ -59,7 +59,7 @@ impl<TOperandId: Clone + Hash + Eq> InstructionMemory for MockConsensus<TOperand
 
 impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
     type OperandId = TOperand;
-    type OperandPieceId = ();
+    type OperandShardId = ();
     type PeerId = PeerId;
     type SyncPayload = Self;
 
@@ -89,7 +89,7 @@ impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
 
     fn push_tx(
         &mut self,
-        tx: Transaction<Self::OperandId, Self::OperandPieceId, Self::PeerId>,
+        tx: Transaction<Self::OperandId, Self::OperandShardId, Self::PeerId>,
     ) -> Result<(), Error> {
         match tx {
             Transaction::Execute(i) => {
@@ -97,7 +97,7 @@ impl<TOperand: Clone + Hash + Eq> GraphConsensus for MockConsensus<TOperand> {
                 self.version += 1;
                 Ok(())
             }
-            Transaction::Stored(vid, _piece_id) => match self.data_locations.entry(vid) {
+            Transaction::Stored(vid, _shard_id) => match self.data_locations.entry(vid) {
                 Entry::Occupied(_) => Err(Error::VidInUse),
                 Entry::Vacant(e) => {
                     e.insert(self.self_id);

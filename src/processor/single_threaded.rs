@@ -45,8 +45,8 @@ impl crate::State for State {
 }
 
 pub struct Settings {
-    pub data_pieces_total: u64,
-    pub data_pieces_sufficient: u64,
+    pub data_shards_total: u64,
+    pub data_shards_sufficient: u64,
 }
 
 struct MemoryBus {
@@ -60,9 +60,9 @@ impl MemoryBus {
     async fn request_data(&self, data_id: Vid) -> Result<mpsc::Receiver<Shard>, Error> {
         let (response_sender, response_reciever) = mpsc::channel(
             self.settings
-                .data_pieces_total
+                .data_shards_total
                 .try_into()
-                .expect("total data pieces # should fit into usize"),
+                .expect("total data shards # should fit into usize"),
         );
         self.data_requester
             .send((data_id, response_sender))
@@ -74,15 +74,15 @@ impl MemoryBus {
     /// Assemble data necessary to complete the instruction(s)
     pub async fn retrieve_data(&self, data_id: Vid) -> Result<Vec<Shard>, Error> {
         let mut reciever = self.request_data(data_id).await?;
-        let sufficient_pieces = self
+        let sufficient_shards = self
             .settings
-            .data_pieces_sufficient
+            .data_shards_sufficient
             .try_into()
-            .expect("minimum data pieces # should fit into usize");
-        let mut data = Vec::with_capacity(sufficient_pieces);
+            .expect("minimum data shards # should fit into usize");
+        let mut data = Vec::with_capacity(sufficient_shards);
         while let Some(shard) = reciever.recv().await {
             data.push(shard);
-            if data.len() >= sufficient_pieces {
+            if data.len() >= sufficient_shards {
                 return Ok(data);
             }
         }

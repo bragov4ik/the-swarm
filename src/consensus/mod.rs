@@ -42,7 +42,7 @@ pub mod graph;
 
 pub trait GraphConsensus {
     type OperandId;
-    type OperandPieceId;
+    type OperandShardId;
 
     /// Peer identifier
     type PeerId;
@@ -68,7 +68,7 @@ pub trait GraphConsensus {
     /// created by this node.
     fn push_tx(
         &mut self,
-        tx: Transaction<Self::OperandId, Self::OperandPieceId, Self::PeerId>,
+        tx: Transaction<Self::OperandId, Self::OperandShardId, Self::PeerId>,
     ) -> Result<(), Self::PushTxError>;
 }
 
@@ -84,14 +84,14 @@ pub trait DataDiscoverer {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
-pub enum Transaction<TDataId, TPieceId, TPeerId> {
+pub enum Transaction<TDataId, TShardId, TPeerId> {
     /// We want to put data at this (memory) address with specified distribution
     StorageRequest {
         address: TDataId,
-        distribution: Vec<(TPeerId, TPieceId)>,
+        distribution: Vec<(TPeerId, TShardId)>,
     },
-    /// Indicates that specified piece (data) of operand is stored somewhere
-    Stored(TDataId, TPieceId),
+    /// Indicates that specified shard (data) of operand is stored somewhere
+    Stored(TDataId, TShardId),
     /// Program is queued for execution by the author
     Execute(Program),
     /// Program was fully executed by this peer

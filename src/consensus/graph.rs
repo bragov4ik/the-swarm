@@ -50,23 +50,23 @@ pub type SyncJobs<TDataId, TShardId> =
     datastructure::sync::Jobs<EventPayload<TDataId, TShardId>, PeerId>;
 
 pin_project! {
-    pub struct GraphWrapper<TDataId, TPieceId, TSigner, TClock> {
+    pub struct GraphWrapper<TDataId, TShardId, TSigner, TClock> {
         // todo: replace parentheses - ()
-        inner: Graph<EventPayload<TDataId, TPieceId>, PeerId, TSigner, TClock>,
+        inner: Graph<EventPayload<TDataId, TShardId>, PeerId, TSigner, TClock>,
         state_updated: Arc<Notify>,
-        included_transaction_buffer: Vec<Transaction<TDataId, TPieceId, PeerId>>,
-        retrieved_transaction_buffer: (PeerId, VecDeque<Transaction<TDataId, TPieceId, PeerId>>),
+        included_transaction_buffer: Vec<Transaction<TDataId, TShardId, PeerId>>,
+        retrieved_transaction_buffer: (PeerId, VecDeque<Transaction<TDataId, TShardId, PeerId>>),
     }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
-pub struct EventPayload<TDataId, TPieceId> {
-    transactions: Vec<Transaction<TDataId, TPieceId, PeerId>>,
+pub struct EventPayload<TDataId, TShardId> {
+    transactions: Vec<Transaction<TDataId, TShardId, PeerId>>,
 }
 
-impl<TDataId, TPieceId, TSigner, TClock> GraphWrapper<TDataId, TPieceId, TSigner, TClock> {
+impl<TDataId, TShardId, TSigner, TClock> GraphWrapper<TDataId, TShardId, TSigner, TClock> {
     pub fn from_graph(
-        graph: Graph<EventPayload<TDataId, TPieceId>, PeerId, TSigner, TClock>,
+        graph: Graph<EventPayload<TDataId, TShardId>, PeerId, TSigner, TClock>,
     ) -> Self {
         Self {
             inner: graph,
@@ -76,7 +76,7 @@ impl<TDataId, TPieceId, TSigner, TClock> GraphWrapper<TDataId, TPieceId, TSigner
         }
     }
 
-    pub fn inner(&self) -> &Graph<EventPayload<TDataId, TPieceId>, PeerId, TSigner, TClock> {
+    pub fn inner(&self) -> &Graph<EventPayload<TDataId, TShardId>, PeerId, TSigner, TClock> {
         &self.inner
     }
 }
@@ -91,17 +91,17 @@ pub enum ApplySyncError {
     CreateError(#[from] EventCreateError<PeerId>),
 }
 
-impl<TDataId, TPieceId, TSigner, TClock> GraphWrapper<TDataId, TPieceId, TSigner, TClock>
+impl<TDataId, TShardId, TSigner, TClock> GraphWrapper<TDataId, TShardId, TSigner, TClock>
 where
     TDataId: Serialize + Eq + std::hash::Hash + Debug + Clone,
-    TPieceId: Serialize + Eq + std::hash::Hash + Debug + Clone,
+    TShardId: Serialize + Eq + std::hash::Hash + Debug + Clone,
     TSigner: Signer<SignerIdentity = PeerId>,
     TClock: Clock,
 {
     pub fn apply_sync(
         &mut self,
         from: PeerId,
-        sync_jobs: SyncJobs<TDataId, TPieceId>,
+        sync_jobs: SyncJobs<TDataId, TShardId>,
     ) -> Result<(), ApplySyncError> {
         if !sync_jobs.as_linear().is_empty() {
             self.state_updated.notify_one();
@@ -138,18 +138,18 @@ where
     }
 }
 
-impl<TDataId, TPieceId, TSigner, TClock> GraphConsensus
-    for GraphWrapper<TDataId, TPieceId, TSigner, TClock>
+impl<TDataId, TShardId, TSigner, TClock> GraphConsensus
+    for GraphWrapper<TDataId, TShardId, TSigner, TClock>
 where
     TDataId: Serialize + Eq + std::hash::Hash + Debug + Clone,
-    TPieceId: Serialize + Eq + std::hash::Hash + Debug + Clone,
+    TShardId: Serialize + Eq + std::hash::Hash + Debug + Clone,
     TSigner: Signer<SignerIdentity = PeerId>,
     TClock: Clock,
 {
     type OperandId = TDataId;
-    type OperandPieceId = TPieceId;
+    type OperandShardId = TShardId;
     type PeerId = PeerId;
-    type SyncPayload = (PeerId, SyncJobs<TDataId, TPieceId>);
+    type SyncPayload = (PeerId, SyncJobs<TDataId, TShardId>);
     type UpdateError = ApplySyncError;
     type PushTxError = ();
     type SyncGenerateError = datastructure::sync::Error;
@@ -168,21 +168,21 @@ where
 
     fn push_tx(
         &mut self,
-        tx: Transaction<Self::OperandId, Self::OperandPieceId, Self::PeerId>,
+        tx: Transaction<Self::OperandId, Self::OperandShardId, Self::PeerId>,
     ) -> Result<(), Self::PushTxError> {
         self.included_transaction_buffer.push(tx);
         Ok(())
     }
 }
 
-impl<TDataId, TPieceId, TSigner, TClock> Stream for GraphWrapper<TDataId, TPieceId, TSigner, TClock>
+impl<TDataId, TShardId, TSigner, TClock> Stream for GraphWrapper<TDataId, TShardId, TSigner, TClock>
 where
     TDataId: Serialize + Eq + std::hash::Hash + Debug + Clone,
-    TPieceId: Serialize + Eq + std::hash::Hash + Debug + Clone,
+    TShardId: Serialize + Eq + std::hash::Hash + Debug + Clone,
     TSigner: Signer<SignerIdentity = PeerId>,
     TClock: Clock,
 {
-    type Item = (PeerId, Transaction<TDataId, TPieceId, PeerId>);
+    type Item = (PeerId, Transaction<TDataId, TShardId, PeerId>);
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,

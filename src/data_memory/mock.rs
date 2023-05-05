@@ -24,21 +24,21 @@ where
 {
     type Error = Void;
     type Identifier = K;
-    type Piece = V;
+    type Shard = V;
 
-    fn get_piece(&self, id: &Self::Identifier) -> Option<&Self::Piece> {
+    fn get_shard(&self, id: &Self::Identifier) -> Option<&Self::Shard> {
         self.inner.get(id)
     }
 
-    fn store_piece(
+    fn store_shard(
         &mut self,
         id: Self::Identifier,
-        data: Self::Piece,
-    ) -> Result<Option<Self::Piece>, Self::Error> {
+        data: Self::Shard,
+    ) -> Result<Option<Self::Shard>, Self::Error> {
         Ok(self.inner.insert(id, data))
     }
 
-    fn remove_piece(&mut self, id: &Self::Identifier) -> Result<Option<Self::Piece>, Self::Error> {
+    fn remove_shard(&mut self, id: &Self::Identifier) -> Result<Option<Self::Shard>, Self::Error> {
         Ok(self.inner.remove(id))
     }
 }

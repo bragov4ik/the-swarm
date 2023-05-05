@@ -17,27 +17,27 @@ impl crate::Module for Module {
 
 pub enum OutEvent {
     // initial distribution
-    /// Ready to answer to `ServePiece` and decided distribution of shards
+    /// Ready to answer to `ServeShard` and decided distribution of shards
     /// accross peers
     PreparedForService {
         data_id: Vid,
         distribution: Vec<(PeerId, Sid)>,
     },
-    ServePieceResponse(super::FullPieceId<DistributedDataMemory>, Option<Shard>),
+    ServeShardResponse(super::FullShardId<DistributedDataMemory>, Option<Shard>),
 
     // assigned
     /// Successfully stored newly assigned shard
-    AssignedStoreSuccess(super::FullPieceId<DistributedDataMemory>),
-    /// Give requested assigned piece
-    AssignedPiece {
-        full_piece_id: super::FullPieceId<DistributedDataMemory>,
+    AssignedStoreSuccess(super::FullShardId<DistributedDataMemory>),
+    /// Give requested assigned shard
+    AssignedShard {
+        full_shard_id: super::FullShardId<DistributedDataMemory>,
         shard: Option<Shard>,
     },
 
     // data recollection
-    /// Need the piece from peer `location`
+    /// Need the shard from peer `location`
     RequestAssigned {
-        full_piece_id: super::FullPieceId<DistributedDataMemory>,
+        full_shard_id: super::FullShardId<DistributedDataMemory>,
         location: PeerId,
     },
     /// Successfully assembled data, ready to provide it to the user
@@ -49,30 +49,30 @@ pub enum OutEvent {
 
 pub enum InEvent {
     // initial distribution
-    // will store the location & set piece as successfully served if applicable
+    // will store the location & set shard as successfully served if applicable
     TrackLocation {
-        full_piece_id: super::FullPieceId<DistributedDataMemory>,
+        full_shard_id: super::FullShardId<DistributedDataMemory>,
         location: PeerId,
     },
     PrepareForService {
         data_id: Vid,
         data: Data,
     },
-    ServePieceRequest(super::FullPieceId<DistributedDataMemory>),
+    ServeShardRequest(super::FullShardId<DistributedDataMemory>),
 
     // assigned
     StoreAssigned {
-        full_piece_id: super::FullPieceId<DistributedDataMemory>,
+        full_shard_id: super::FullShardId<DistributedDataMemory>,
         shard: Shard,
     },
-    GetAssigned(super::FullPieceId<DistributedDataMemory>),
+    GetAssigned(super::FullShardId<DistributedDataMemory>),
 
     // data recollection
     RecollectData(Vid),
 
     HandleRequested {
-        full_piece_id: super::FullPieceId<DistributedDataMemory>,
-        piece: Shard,
+        full_shard_id: super::FullShardId<DistributedDataMemory>,
+        shard: Shard,
     },
 }
 
@@ -84,8 +84,8 @@ pub struct DistributedDataMemory {
 }
 
 pub struct Settings {
-    pub data_pieces_total: u64,
-    pub data_pieces_sufficient: u64,
+    pub data_shards_total: u64,
+    pub data_shards_sufficient: u64,
 }
 
 struct MemoryBus {
@@ -96,17 +96,17 @@ struct MemoryBus {
 
 impl DistributedDataMemory {
     // TODO: proper error
-    pub fn handle_received_piece(
+    pub fn handle_received_shard(
         &mut self,
         data_id: Vid,
         shard_id: Sid,
-        piece: Shard,
+        shard: Shard,
     ) -> Result<(), ()> {
-        let pieces = self.currently_assembled.get_mut(&data_id).ok_or(())?;
-        if pieces.contains_key(&shard_id) {
+        let shards = self.currently_assembled.get_mut(&data_id).ok_or(())?;
+        if shards.contains_key(&shard_id) {
             return Err(());
         }
-        pieces.insert(shard_id, piece);
+        shards.insert(shard_id, shard);
         // check if # is enough & respond to request.
         todo!()
     }
@@ -119,42 +119,42 @@ impl DistributedDataMemory {
 
 impl DataMemory for DistributedDataMemory {
     type Error = ();
-    type Piece = Shard;
+    type Shard = Shard;
     type DataId = Vid;
-    type PieceId = Sid;
+    type ShardId = Sid;
 
-    fn get_piece(&self, full_piece_id: &super::FullPieceId<Self>) -> Option<&Self::Piece> {
+    fn get_shard(&self, full_shard_id: &super::FullShardId<Self>) -> Option<&Self::Shard> {
         todo!()
     }
 
-    fn store_piece(
+    fn store_shard(
         &mut self,
-        full_piece_id: super::FullPieceId<Self>,
-        data: Self::Piece,
-    ) -> Result<Option<Self::Piece>, Self::Error> {
+        full_shard_id: super::FullShardId<Self>,
+        data: Self::Shard,
+    ) -> Result<Option<Self::Shard>, Self::Error> {
         todo!()
     }
 
-    fn remove_piece(
+    fn remove_shard(
         &mut self,
-        full_piece_id: &super::FullPieceId<Self>,
-    ) -> Result<Option<Self::Piece>, Self::Error> {
+        full_shard_id: &super::FullShardId<Self>,
+    ) -> Result<Option<Self::Shard>, Self::Error> {
         todo!()
     }
 
-    fn observe_new_location(&mut self, full_piece_id: &super::FullPieceId<Self>, location: PeerId) {
+    fn observe_new_location(&mut self, full_shard_id: &super::FullShardId<Self>, location: PeerId) {
         todo!()
     }
 
-    fn prepare_to_serve_pieces(
+    fn prepare_to_serve_shards(
         &mut self,
         data: Self::DataId,
-        pieces: HashMap<Self::PieceId, Self::Piece>,
+        shards: HashMap<Self::ShardId, Self::Shard>,
     ) {
         todo!()
     }
 
-    fn serve_piece(&self, full_piece_id: &super::FullPieceId<Self>) -> Option<Self::Piece> {
+    fn serve_shard(&self, full_shard_id: &super::FullShardId<Self>) -> Option<Self::Shard> {
         todo!()
     }
 }

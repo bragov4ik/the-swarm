@@ -94,7 +94,7 @@ where
 
     /// Execution status (to be removed/completely changed with
     /// actual consensus, it's a mock part)
-    exec_state: ExecutionState<TDataMemory::Identifier, TDataMemory::Piece>,
+    exec_state: ExecutionState<TDataMemory::Identifier, TDataMemory::Shard>,
     pending_handler_events: VecDeque<(PeerId, HandlerEvent)>,
 }
 
@@ -268,11 +268,11 @@ where
     fn save_shard_locally(
         &mut self,
         id: D::Identifier,
-        shard_id: C::OperandPieceId,
-        shard: D::Piece,
+        shard_id: C::OperandShardId,
+        shard: D::Shard,
         local_id: PeerId,
     ) {
-        if let Err(e) = self.data_memory.store_piece(id.clone(), shard) {
+        if let Err(e) = self.data_memory.store_shard(id.clone(), shard) {
             warn!("Error saving shard locally: {:?}", e);
         } else if let Err(e) = self.consensus.push_tx(Transaction::Stored(id, shard_id)) {
             warn!(
@@ -296,10 +296,10 @@ where
             SyncPayload = crate::types::Graph,
             OperandId = Vid,
             PeerId = PeerId,
-            OperandPieceId = (),
+            OperandShardId = (),
         > + DataDiscoverer<DataIdentifier = <TDataMemory as DataMemory>::Identifier, PeerAddr = PeerId>
         + 'static,
-    TDataMemory: DataMemory<Identifier = Vid, Piece = Shard> + 'static,
+    TDataMemory: DataMemory<Identifier = Vid, Shard = Shard> + 'static,
     TProcessor: Processor<Operand = Shard> + 'static,
 {
     type ConnectionHandler = Connection;
@@ -376,7 +376,7 @@ where
                                 "Received request for getting vector {:?} shard, responding",
                                 id
                             );
-                            let result = self.data_memory.get_piece(&id).cloned();
+                            let result = self.data_memory.get_shard(&id).cloned();
                             return Poll::Ready(ToSwarm::NotifyHandler {
                                 peer_id,
                                 handler: NotifyHandler::One(connection),
@@ -493,10 +493,10 @@ where
                     match <TProcessor as Processor>::execute_one(&ready_instruction) {
                         Ok(res) => {
                             let dest_id = (*ready_instruction.result).clone();
-                            if self.data_memory.get_piece(&dest_id).is_some() {
+                            if self.data_memory.get_shard(&dest_id).is_some() {
                                 warn!("Tried to overwrite data in instruction, the execution result is not saved")
                             } else {
-                                match self.data_memory.store_piece(dest_id, res) {
+                                match self.data_memory.store_shard(dest_id, res) {
                                     Ok(None) => debug!("Executed and saved result."),
                                     // Shouldn't happen, we've just checked it
                                     Ok(Some(_)) => error!("Overwrote data after executing an instruction. This behaviour is unintended and is most likely a bug."),
@@ -517,17 +517,17 @@ where
                     // if unsuccessful, discover & send requests to corresponding nodes.
                     let state_instruction = match instruction {
                         Instruction::dot(i1, i2, dest) => Instruction::dot(
-                            (i1.clone(), self.data_memory.get_piece(&i1).cloned()),
-                            (i2.clone(), self.data_memory.get_piece(&i2).cloned()),
+                            (i1.clone(), self.data_memory.get_shard(&i1).cloned()),
+                            (i2.clone(), self.data_memory.get_shard(&i2).cloned()),
                             dest,
                         ),
                         Instruction::plus(i1, i2, dest) => Instruction::plus(
-                            (i1.clone(), self.data_memory.get_piece(&i1).cloned()),
-                            (i2.clone(), self.data_memory.get_piece(&i2).cloned()),
+                            (i1.clone(), self.data_memory.get_shard(&i1).cloned()),
+                            (i2.clone(), self.data_memory.get_shard(&i2).cloned()),
                             dest,
                         ),
                         Instruction::inv(i, dest) => Instruction::inv(
-                            (i.clone(), self.data_memory.get_piece(&i).cloned()),
+                            (i.clone(), self.data_memory.get_shard(&i).cloned()),
                             dest,
                         ),
                     };
