@@ -576,41 +576,19 @@ impl NetworkBehaviour for Behaviour {
                         }
                     }
                 }
-                consensus::graph::OutEvent::SyncReady { to, sync } => todo!(),
+                consensus::graph::OutEvent::SyncReady { to, sync } => {
+                    return Poll::Ready(ToSwarm::NotifyHandler {
+                        peer_id: to,
+                        handler: NotifyHandler::Any,
+                        event: handler::IncomingEvent::SendPrimary(protocol::Primary::Simple(
+                            protocol::Simple::GossipGraph(sync),
+                        )),
+                    });
+                }
             },
             Poll::Ready(None) => cant_operate_error_return!(
                 "other half of `consensus.output` was closed. cannot operate without this module."
             ),
-            Poll::Pending => (),
-        }
-
-        let finalized_transactions = &mut self.finalized_transactions;
-        pin_mut!(finalized_transactions);
-        match finalized_transactions.poll_next(cx) {
-            // handle tx's:
-            // track data locations, pull assigned shards
-            Poll::Ready(Some(tx)) => match tx {
-                // send a network request to `who`
-                (
-                    who,
-                    Transaction::StorageRequest {
-                        address,
-                        distribution,
-                    },
-                ) => todo!(),
-                // take a note that `(data_id, piece_id)` is stored at `location`
-                (location, Transaction::Stored(data_id, piece_id)) => todo!(),
-                (_, Transaction::Execute(p)) => {
-                    let programs_to_run_send = self.programs_to_run.sender.send(p);
-                    pin_mut!(programs_to_run_send);
-                    match programs_to_run_send.poll(cx) {
-                        Poll::Ready(Ok(_)) => (),
-                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `programs_to_run` was closed, but it's owned by us. it's a bug."),
-                        Poll::Pending => cant_operate_error_return!("`programs_to_run` queue is full, probably mistake code with tasks priority. continuing will skip a transaction, which is unacceptable."),
-                    }
-                }
-            },
-            Poll::Ready(None) => cant_operate_error_return!("other half of `finalized_transactions` was closed, but it's owned by us. it's a bug."),
             Poll::Pending => (),
         }
 
@@ -621,15 +599,16 @@ impl NetworkBehaviour for Behaviour {
                 let random_peer = self.get_random_peer();
                 self.consensus_gossip_timer = Box::pin(sleep(self.consensus_gossip_timeout));
                 if let Some(random_peer) = random_peer {
-                    debug!("Generating sync for peer {}", random_peer);
-                    // self.consensus.input;
-                    return Poll::Ready(ToSwarm::NotifyHandler {
-                        peer_id: random_peer,
-                        handler: NotifyHandler::Any,
-                        event: HandlerEvent::SendPrimary(Primary::Simple(Simple::GossipGraph(
-                            self.consensus.get_sync(&random_peer),
-                        ))),
-                    });
+                    let send_future = self
+                        .consensus
+                        .input
+                        .send(consensus::graph::InEvent::GenerateSync { to: random_peer });
+                    pin_mut!(send_future);
+                    match send_future.poll(cx) {
+                        Poll::Ready(Ok(_)) => (),
+                        Poll::Ready(Err(e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                        Poll::Pending => warn!("`consensus.input` queue is full. skipping random gossip. it's ok for a few times, but repeated skips are concerning, as it is likely to worsen distributed system responsiveness"),
+                    }
                 } else {
                     debug!("Time to send gossip but no peers found, idling...");
                 }
