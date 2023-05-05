@@ -153,7 +153,7 @@ impl Behaviour {
         let mut i = self.connected_peers.iter().skip(position);
         Some(
             *i.next()
-                .expect("Shouldn't have skipped more than `len-1` elements"),
+                .expect("Shouldn't have skipped more than `len-1` elements."),
         )
     }
 }
@@ -299,7 +299,7 @@ impl NetworkBehaviour for Behaviour {
                                     match send_future.poll(cx) {
                                         Poll::Ready(Ok(_)) => (),
                                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development"),
+                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
                                     }
                                 },
                                 None => warn!("Peer that announced event distribution doesn't have shard assigned to us. Strange but ok."),
@@ -315,13 +315,13 @@ impl NetworkBehaviour for Behaviour {
                                     match send_future.poll(cx) {
                                         Poll::Ready(Ok(_)) => (),
                                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development"),
+                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
                                     }
                                 },
                                 None => warn!("Peer that announced that it stores assigned shard doesn't have it. Misbehaviour??"),
                             }
                         },
-                        ConnectionReceived::Response( _, _ ) => warn!("Unmatched response, need to recheck what to do in this case"),
+                        ConnectionReceived::Response( _, _ ) => warn!("Unmatched response, need to recheck what to do in this case."),
                         ConnectionReceived::Simple(protocol::Simple::GossipGraph(sync)) => {
                             let send_future = self.consensus.input.send(
                                 consensus::graph::InEvent::ApplySync { from: s.peer_id, sync }
@@ -630,8 +630,21 @@ impl NetworkBehaviour for Behaviour {
         trace!("Checking periodic gossip");
         if self.consensus.accepts_input() {
             if let Poll::Ready(_) = self.consensus_gossip_timer.as_mut().poll(cx) {
-                // Time to send another one
                 let random_peer = self.get_random_peer();
+
+                // Since we're on it - make a standalone event
+                let send_future = self
+                    .consensus
+                    .input
+                    .send(consensus::graph::InEvent::CreateStandalone);
+                pin_mut!(send_future);
+                match send_future.poll(cx) {
+                    Poll::Ready(Ok(_)) => (),
+                    Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                    Poll::Pending => warn!("`consensus.input` queue is full. skipping making a standalone event. might lead to higher latency in scheduled tx inclusion."),
+                };
+
+                // Time to send another one
                 self.consensus_gossip_timer = Box::pin(sleep(self.consensus_gossip_timeout));
                 if let Some(random_peer) = random_peer {
                     let send_future = self
@@ -642,7 +655,7 @@ impl NetworkBehaviour for Behaviour {
                     match send_future.poll(cx) {
                         Poll::Ready(Ok(_)) => (),
                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
-                        Poll::Pending => warn!("`consensus.input` queue is full. skipping random gossip. it's ok for a few times, but repeated skips are concerning, as it is likely to worsen distributed system responsiveness"),
+                        Poll::Pending => warn!("`consensus.input` queue is full. skipping random gossip. it's ok for a few times, but repeated skips are concerning, as it is likely to worsen distributed system responsiveness."),
                     }
                 } else {
                     debug!("Time to send gossip but no peers found, idling...");
