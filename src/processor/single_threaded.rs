@@ -2,11 +2,14 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use thiserror::Error;
-use tokio::{join, sync::mpsc};
+use tokio::{
+    join,
+    sync::{mpsc, oneshot},
+};
 
 use crate::{
-    encoding::{self, mock::MockEncoding, DataEncoding},
-    types::{Data, Hash, Shard, Vid},
+    encoding::{self},
+    types::{Data, Hash, Vid},
 };
 
 use super::{instruction::Instruction, BinaryOp, Operation, Processor, Program, UnaryOp};
@@ -50,20 +53,14 @@ pub struct Settings {
 }
 
 struct MemoryBus {
-    data_requester: mpsc::Sender<(Vid, mpsc::Sender<Shard>)>,
-    data_writer: mpsc::Sender<(Vid, Vec<Shard>)>,
-    settings: Settings,
+    data_requester: mpsc::Sender<(Vid, oneshot::Sender<Data>)>,
+    data_writer: mpsc::Sender<(Vid, Data)>,
 }
 
 impl MemoryBus {
     // ideally should just request data from local storage; not with currently used math
-    async fn request_data(&self, data_id: Vid) -> Result<mpsc::Receiver<Shard>, Error> {
-        let (response_sender, response_reciever) = mpsc::channel(
-            self.settings
-                .data_shards_total
-                .try_into()
-                .expect("total data shards # should fit into usize"),
-        );
+    async fn request_data(&self, data_id: Vid) -> Result<oneshot::Receiver<Data>, Error> {
+        let (response_sender, response_reciever) = oneshot::channel();
         self.data_requester
             .send((data_id, response_sender))
             .await
@@ -72,26 +69,15 @@ impl MemoryBus {
     }
 
     /// Assemble data necessary to complete the instruction(s)
-    pub async fn retrieve_data(&self, data_id: Vid) -> Result<Vec<Shard>, Error> {
-        let mut reciever = self.request_data(data_id).await?;
-        let sufficient_shards = self
-            .settings
-            .data_shards_sufficient
-            .try_into()
-            .expect("minimum data shards # should fit into usize");
-        let mut data = Vec::with_capacity(sufficient_shards);
-        while let Some(shard) = reciever.recv().await {
-            data.push(shard);
-            if data.len() >= sufficient_shards {
-                return Ok(data);
-            }
-        }
-        return Err(Error::EncodingError(encoding::mock::Error::NotEnoughShards));
+    pub async fn retrieve_data(&self, data_id: Vid) -> Result<Data, Error> {
+        let reciever = self.request_data(data_id).await?;
+        reciever.await.map_err(|_| Error::ResponseChannelClosed)
     }
 
-    pub async fn store_local(&self, data_id: Vid, shards: Vec<Shard>) -> Result<(), Error> {
+    // todo: change to shard when switching encoding
+    pub async fn store_local(&self, data_id: Vid, data: Data) -> Result<(), Error> {
         self.data_writer
-            .send((data_id, shards))
+            .send((data_id, data))
             .await
             .map_err(|_| Error::DataWriteChannelClosed)
     }
@@ -133,8 +119,7 @@ impl SimpleProcessor {
         if let Some(o) = operand_context {
             return Ok(o);
         }
-        let shards = self.memory_access.retrieve_data(operand).await?;
-        Ok(encoding::mock::MockEncoding::decode(shards)?)
+        self.memory_access.retrieve_data(operand).await
     }
 
     async fn retrieve_binary(
@@ -188,6 +173,8 @@ pub enum Error {
     DataRequestChannelClosed,
     #[error("Channel to memory for data writes was closed.")]
     DataWriteChannelClosed,
+    #[error("Channel for getting response from memory bus was closed")]
+    ResponseChannelClosed,
     #[error(transparent)]
     EncodingError(#[from] encoding::mock::Error),
 }
@@ -221,16 +208,9 @@ impl Processor<Program> for SimpleProcessor {
             };
             let output = Self::calculate(&operation);
             context.insert(result_id.clone(), output.clone());
-            let shards = match MockEncoding::encode(output) {
-                Ok(s) => s,
-                Err(e) => {
-                    results.push(Err(e.into()));
-                    continue;
-                }
-            };
             if let Err(e) = self
                 .memory_access
-                .store_local(result_id.clone(), shards)
+                .store_local(result_id.clone(), output)
                 .await
             {
                 results.push(Err(e));

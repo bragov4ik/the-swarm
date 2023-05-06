@@ -526,13 +526,18 @@ impl NetworkBehaviour for Behaviour {
 
         if self.processor.accepts_input() {
             match self.instruction_memory.output.poll_recv(cx) {
-                Poll::Ready(Some(instruction_storage::OutEvent::NextProgram(program))) => {
-                    let send_future = self.processor.input.send(single_threaded::InEvent::Execute(program));
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => (),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `processor.input` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`processor.input` queue is full. continuing will skip a program for execution, which is unacceptable."),
+                Poll::Ready(Some(event)) => {
+                    match event {
+                        instruction_storage::OutEvent::NextProgram(program) => {
+                            let send_future = self.processor.input.send(single_threaded::InEvent::Execute(program));
+                            pin_mut!(send_future);
+                            match send_future.poll(cx) {
+                                Poll::Ready(Ok(_)) => (),
+                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `processor.input` was closed. cannot operate without this module."),
+                                Poll::Pending => cant_operate_error_return!("`processor.input` queue is full. continuing will skip a program for execution, which is unacceptable."),
+                            }
+                        }
+                        instruction_storage::OutEvent::FinishedExecution(_) => todo!(),
                     }
                 }
                 Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),

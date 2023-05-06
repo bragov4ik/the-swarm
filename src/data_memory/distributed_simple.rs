@@ -180,7 +180,7 @@ impl DistributedDataMemory {
     ///
     /// Also this allows to track how many shards were already served and
     /// remove them if no longer needed.
-    fn observe_new_location(&mut self, full_shard_id: &FullShardId, location: PeerId) {
+    fn observe_new_location(&mut self, full_shard_id: FullShardId, location: PeerId) {
         let shards = self.data_locations.entry(full_shard_id.0).or_default();
         shards.insert(full_shard_id.1, location);
     }
@@ -190,7 +190,7 @@ impl DistributedDataMemory {
     ///
     /// The idea is to store them for some short time until they are all distributed.
     fn prepare_to_serve_shards(&mut self, data_id: Vid, shards: HashMap<Sid, Shard>) {
-        if let Some(previously_distributed) = self.to_distribute.insert(data_id, shards) {
+        if let Some(previously_distributed) = self.to_distribute.insert(data_id.clone(), shards) {
             warn!(
                 "Started distribution of vector that has not finished distributing yet \
             ({} pieces were not confirmed to be stored). \
@@ -234,10 +234,10 @@ impl DistributedDataMemory {
                         error!("`connection.output` is closed, shuttung down data memory");
                         return;
                     };
-                    if let Err(_) = connection.output.send(OutEvent::NextProgram(program)).await {
-                        error!("`connection.output` is closed, shuttung down data memory");
-                        return;
-                    }
+                    // if let Err(_) = connection.output.send(OutEvent::NextProgram(program)).await {
+                    //     error!("`connection.output` is closed, shuttung down data memory");
+                    //     return;
+                    // }
                     match in_event {
                         InEvent::TrackLocation { full_shard_id, location } => todo!(),
                         InEvent::PrepareForService { data_id, data } => todo!(),
@@ -245,7 +245,7 @@ impl DistributedDataMemory {
                         InEvent::StoreAssigned { full_shard_id, shard } => todo!(),
                         InEvent::GetAssigned(_) => todo!(),
                         InEvent::RecollectData(data_id) => {
-                            match self.currently_assembled.entry(data_id) {
+                            match self.currently_assembled.entry(data_id.clone()) {
                                 // requests were already sent, just join the waiting list
                                 hash_map::Entry::Occupied(_) => (),
                                 hash_map::Entry::Vacant(v) => {
@@ -256,7 +256,7 @@ impl DistributedDataMemory {
                                     };
                                     for (shard, owner) in locations {
                                         if let Err(_) = connection.output.send(OutEvent::RequestAssigned{
-                                            full_shard_id: (data_id, shard.clone()),
+                                            full_shard_id: (data_id.clone(), shard.clone()),
                                             location: owner.clone()
                                         }).await {
                                             error!("`connection.output` is closed, shuttung down data memory");
@@ -275,7 +275,40 @@ impl DistributedDataMemory {
                                 if !received_shards.contains_key(&full_shard_id.1) {
                                     received_shards.insert(full_shard_id.1, shard);
                                     if received_shards.len() >= self.encoding.settings().data_shards_sufficient.try_into().expect("# of shards sufficient is too large") {
-
+                                        let shards = self.currently_assembled.remove(&full_shard_id.0).expect("Just had this entry");
+                                        let data = match self.encoding.decode(shards) {
+                                            Ok(data) => data,
+                                            Err(e) => {
+                                                // todo: handle better
+                                                warn!("Collected enough shards but failed to decode: {}", e);
+                                                self.awaiting_assembles.remove(&full_shard_id.0);
+                                                continue;
+                                            },
+                                        };
+                                        let Some(to_notify) = self.awaiting_assembles.remove(&full_shard_id.0) else {
+                                            continue;
+                                        };
+                                        // todo: send arc instead of cloning, receivers can clone themselves if needed
+                                        // shouldn't matter too much though; there aren't many clones expected
+                                        match &to_notify {
+                                            AwaitingAssembly::ModuleClient | AwaitingAssembly::Both(_) => {
+                                                if let Err(_) = connection.output.send(OutEvent::FinishedRecollection { data_id: full_shard_id.0, data: data.clone() }).await {
+                                                    error!("`connection.output` is closed, shuttung down data memory");
+                                                    return;
+                                                }
+                                            },
+                                            AwaitingAssembly::MemoryBus(_) => (),
+                                        }
+                                        match to_notify {
+                                            AwaitingAssembly::MemoryBus(response_handles) | AwaitingAssembly::Both(response_handles) => {
+                                                for handle in response_handles {
+                                                    if let Err(_) = handle.send(data.clone()) {
+                                                        warn!("receiving handle (memory bus) dropped for some reason, ignoring");
+                                                    }
+                                                }
+                                            },
+                                            AwaitingAssembly::ModuleClient => (),
+                                        }
                                     }
                                 }
                                 else {
@@ -296,7 +329,7 @@ impl DistributedDataMemory {
                     };
                     match data_request {
                         MemoryBusDataRequest::Assemble { data_id, response_handle } => {
-                            match self.currently_assembled.entry(data_id) {
+                            match self.currently_assembled.entry(data_id.clone()) {
                                 // requests were already sent, just join the waiting list
                                 hash_map::Entry::Occupied(_) => (),
                                 hash_map::Entry::Vacant(v) => {
@@ -307,7 +340,7 @@ impl DistributedDataMemory {
                                     };
                                     for (shard, owner) in locations {
                                         if let Err(_) = connection.output.send(OutEvent::RequestAssigned{
-                                            full_shard_id: (data_id, shard.clone()),
+                                            full_shard_id: (data_id.clone(), shard.clone()),
                                             location: owner.clone()
                                         }).await {
                                             error!("`connection.output` is closed, shuttung down data memory");
