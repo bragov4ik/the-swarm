@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 use std::task::Poll;
 use std::{fmt::Debug, sync::Arc};
 
-use futures::Future;
 use futures::Stream;
+use futures::{pin_mut, Future, StreamExt};
 use libp2p::PeerId;
 use pin_project_lite::pin_project;
 use rust_hashgraph::algorithm::{
@@ -15,7 +15,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::pin;
 use tokio::sync::Notify;
+use tracing::{error, info, warn};
 
+use crate::behaviour::ModuleChannelServer;
 use crate::types::{GraphSync, Sid, Vid};
 
 use super::{GraphConsensus, Transaction};
@@ -50,6 +52,11 @@ pub type SyncJobs<TDataId, TShardId> =
     datastructure::sync::Jobs<EventPayload<TDataId, TShardId>, PeerId>;
 
 pin_project! {
+    /// Async wrapper for the graph consensus. Intended to communicate
+    /// with behaviour through corresponding [`ModuleChannelServer`] (the
+    /// behaviour thus uses [`ModuleChannelClient`]).
+    ///
+    /// Use [`Self::from_graph()`] to create, [`Self::run()`] to operate.
     pub struct GraphWrapper<TDataId, TShardId, TSigner, TClock> {
         // todo: replace parentheses - ()
         inner: Graph<EventPayload<TDataId, TShardId>, PeerId, TSigner, TClock>,
@@ -136,42 +143,9 @@ where
         self.inner.create_event(payload, self_parent)?;
         Ok(())
     }
-}
 
-impl<TDataId, TShardId, TSigner, TClock> GraphConsensus
-    for GraphWrapper<TDataId, TShardId, TSigner, TClock>
-where
-    TDataId: Serialize + Eq + std::hash::Hash + Debug + Clone,
-    TShardId: Serialize + Eq + std::hash::Hash + Debug + Clone,
-    TSigner: Signer<SignerIdentity = PeerId>,
-    TClock: Clock,
-{
-    type OperandId = TDataId;
-    type OperandShardId = TShardId;
-    type PeerId = PeerId;
-    type SyncPayload = (PeerId, SyncJobs<TDataId, TShardId>);
-    type UpdateError = ApplySyncError;
-    type PushTxError = ();
-    type SyncGenerateError = datastructure::sync::Error;
-
-    fn update_graph(&mut self, update: Self::SyncPayload) -> Result<(), Self::UpdateError> {
-        self.apply_sync(update.0, update.1)
-    }
-
-    fn get_sync(
-        &self,
-        sync_for: &Self::PeerId,
-    ) -> Result<Self::SyncPayload, Self::SyncGenerateError> {
-        let sync_payload = self.inner.generate_sync_for(sync_for)?;
-        Ok((self.inner.self_id().clone(), sync_payload))
-    }
-
-    fn push_tx(
-        &mut self,
-        tx: Transaction<Self::OperandId, Self::OperandShardId, Self::PeerId>,
-    ) -> Result<(), Self::PushTxError> {
+    pub fn push_tx(&mut self, tx: Transaction<TDataId, TShardId, PeerId>) {
         self.included_transaction_buffer.push(tx);
-        Ok(())
     }
 }
 
@@ -189,9 +163,12 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         let this = self.project();
+
+        // wake up if something changed
         let state_updated_notification = this.state_updated.notified();
         pin!(state_updated_notification);
         let _ = state_updated_notification.poll(cx);
+
         loop {
             if let Some(tx) = this.retrieved_transaction_buffer.1.pop_front() {
                 // feed transactions from an event one by one
@@ -214,6 +191,64 @@ where
                         }
                     }
                     None => return Poll::Pending,
+                }
+            }
+        }
+    }
+}
+
+impl<TSigner, TClock> GraphWrapper<Vid, Sid, TSigner, TClock>
+where
+    TSigner: Signer<SignerIdentity = PeerId>,
+    TClock: Clock,
+{
+    async fn run(mut self, mut connection: ModuleChannelServer<Module>) {
+        loop {
+            tokio::select! {
+                result = self.next() => {
+                    let Some((from, tx)) = result else {
+                        info!("stream of events ended, shuttung down consensus");
+                        return;
+                    };
+                    if let Err(_) = connection.output.send(OutEvent::FinalizedTransaction { from, tx }).await {
+                        info!("`connection.output` is closed, shuttung down consensus");
+                        return;
+                    }
+                }
+                in_event = connection.input.recv() => {
+                    let Some(in_event) = in_event else {
+                        info!("`connection.output` is closed, shuttung down consensus");
+                        return;
+                    };
+                    match in_event {
+                        InEvent::ApplySync { from, sync } => {
+                            if let Err(e) = self.apply_sync(from, sync) {
+                                warn!("Failed to apply sync from peer {}: {}", from, e);
+                            }
+                        },
+                        InEvent::GenerateSync { to } => {
+                            let sync = match self.inner.generate_sync_for(&to) {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    error!("Graph state inconsistent or bug in generation of sync: {:?}", e);
+                                    // todo: maybe store state to debug???
+                                    return;
+                                },
+                            };
+                            if let Err(_) = connection.output.send(OutEvent::SyncReady { to, sync }).await {
+                                error!("`connection.output` is closed, shuttung down consensus");
+                                return;
+                            }
+                        },
+                        InEvent::ScheduleTx(tx) => {
+                            self.push_tx(tx);
+                        },
+                        InEvent::CreateStandalone => {
+                            if let Err(e) = self.create_standalone_event() {
+                                warn!("Failed to create standalone event: {}", e);
+                            }
+                        },
+                    }
                 }
             }
         }

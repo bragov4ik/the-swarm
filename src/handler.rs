@@ -133,7 +133,7 @@ impl Connection {
     ///
     /// Response returned together with sent request to provide
     /// context for handling the payload later (e.g. to know which
-    /// vector does the received shard belongs to).
+    /// data does the received shard belongs to).
     async fn handle_outgoing_message(
         stream: NegotiatedSubstream,
         to_send: Primary,

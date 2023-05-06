@@ -85,8 +85,8 @@ struct ConnectionError {
 }
 
 pub struct ModuleChannelServer<M: Module> {
-    input: mpsc::Receiver<M::InEvent>,
-    output: mpsc::Sender<M::OutEvent>,
+    pub input: mpsc::Receiver<M::InEvent>,
+    pub output: mpsc::Sender<M::OutEvent>,
     state: Option<Arc<Mutex<M::State>>>,
 }
 

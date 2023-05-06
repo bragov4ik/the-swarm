@@ -76,6 +76,14 @@ pub enum InEvent {
     },
 }
 
+/// Async data memory/data manager. Intended to communicate
+/// with behaviour through corresponding [`ModuleChannelServer`] (the
+/// behaviour thus uses [`ModuleChannelClient`]).
+///
+/// Tracks locations of data shards, stores shards assigned to this peer,
+/// and manages initial distribution (serving) with rebuilding of data.
+///
+/// Use [`Self::run()`] to operate.
 pub struct DistributedDataMemory {
     data_locations: HashMap<Vid, Vec<(Sid, PeerId)>>,
     local_storage: HashMap<Vid, (Sid, Vid)>,
