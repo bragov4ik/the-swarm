@@ -115,7 +115,6 @@ impl Default for ExecutionState {
     }
 }
 
-// todo: check if can be replaced by just direct channel (or even queue)
 impl InstructionMemory {
     async fn run(mut self, mut connection: ModuleChannelServer<Module>) {
         loop {

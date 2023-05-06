@@ -235,6 +235,7 @@ where
                                     return;
                                 },
                             };
+                            // todo: maybe use `try_send` or `reserve` on each send
                             if let Err(_) = connection.output.send(OutEvent::SyncReady { to, sync }).await {
                                 error!("`connection.output` is closed, shuttung down consensus");
                                 return;

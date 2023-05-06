@@ -2,9 +2,11 @@ use thiserror::Error;
 
 use crate::types::{Data, Shard};
 
-use super::DataEncoding;
+use super::{DataEncoding, EncodingSettings};
 
-pub struct MockEncoding;
+pub struct MockEncoding {
+    settings: EncodingSettings,
+}
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -33,5 +35,9 @@ impl DataEncoding<Data, Shard, Error> for MockEncoding {
             .flatten()
             .collect();
         kek.try_into().map_err(|_| Error::NotEnoughShards)
+    }
+
+    fn settings(&self) -> EncodingSettings {
+        self.settings
     }
 }

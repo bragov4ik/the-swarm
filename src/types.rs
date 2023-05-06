@@ -4,8 +4,7 @@ use serde_big_array::BigArray;
 use crate::consensus::graph::SyncJobs;
 
 /// Identifier for whole data unit (not split into shards). For example,
-/// this can be ID of vector. Shards of the vector will have the same
-/// identifier
+/// this can be a memory address. Shards of the vector will have the same `Vid`.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Hash)]
 pub struct Vid(pub u64);
 
