@@ -11,6 +11,19 @@ pub struct ReedSolomonWrapper {
     inner: ReedSolomon,
 }
 
+impl ReedSolomonWrapper {
+    pub fn new(encoding_settings: Settings) -> Self {
+        let data_shards = encoding_settings.data_shards_sufficient;
+        let total_shards = encoding_settings.data_shards_total;
+        let inner = ReedSolomon::new(
+            data_shards.try_into().unwrap(),
+            (total_shards - data_shards).try_into().unwrap(),
+        )
+        .unwrap();
+        Self { inner }
+    }
+}
+
 // for returning only, the actual settings are stored in `ReedSolomon`
 #[derive(Clone)]
 pub struct Settings {

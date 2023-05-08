@@ -85,11 +85,14 @@ pub trait DataDiscoverer {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub enum Transaction<TDataId, TShardId, TPeerId> {
-    /// We want to put data at this (memory) address with specified distribution
-    StorageRequest {
-        address: TDataId,
+    /// All data will be stored according to this distribution.
+    /// Before this tx other ones are not processed
+    InitializeStorage {
         distribution: Vec<(TPeerId, TShardId)>,
     },
+    /// We want to put data at this (memory) address with distribution specified in
+    /// `InitializeStorage` before
+    StorageRequest { address: TDataId },
     /// Indicates that specified shard (data) of operand is stored somewhere
     Stored(TDataId, TShardId),
     /// Program is queued for execution by the author

@@ -1,17 +1,18 @@
-use std::collections::{hash_map, HashMap};
+use std::collections::{hash_map, HashMap, HashSet};
 
 use futures::channel::oneshot;
 use libp2p::PeerId;
 use tokio::sync::mpsc;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     behaviour::ModuleChannelServer,
-    encoding::{mock::MockEncoding, DataEncoding},
+    encoding::{
+        reed_solomon::{self, ReedSolomonWrapper},
+        DataEncoding,
+    },
     types::{Data, Shard, Sid, Vid},
 };
-
-use super::DataMemory;
 
 pub struct Module;
 
@@ -27,10 +28,7 @@ pub enum OutEvent {
     // initial distribution
     /// Ready to answer to `ServeShard` and decided distribution of shards
     /// accross peers
-    PreparedForService {
-        data_id: Vid,
-        distribution: Vec<(PeerId, Sid)>,
-    },
+    PreparedForService { data_id: Vid },
     /// The shard that was requested to store here
     ServeShardResponse(FullShardId, Option<Shard>),
 
@@ -53,7 +51,12 @@ pub enum OutEvent {
     FinishedRecollection { data_id: Vid, data: Data },
 }
 
+#[derive(Debug)]
 pub enum InEvent {
+    Initialize {
+        distribution: Vec<(PeerId, Sid)>,
+    },
+
     // initial distribution
     // will store the location & set shard as successfully served if applicable
     TrackLocation {
@@ -87,7 +90,100 @@ pub enum InEvent {
     },
 }
 
-pub struct PeersToDistributeTo(Arc<Mutex<HashSet>>);
+pub struct UninitializedDataMemory {
+    bus: MemoryBus,
+    encoding: ReedSolomonWrapper,
+}
+
+impl UninitializedDataMemory {
+    fn new(bus: MemoryBus, encoding_settings: reed_solomon::Settings) -> Self {
+        let encoding = ReedSolomonWrapper::new(encoding_settings);
+        Self { bus, encoding }
+    }
+
+    /// `true` == valid
+    fn verify_distribution(&self, distribution: &HashMap<PeerId, Sid>) -> bool {
+        let shard_ids: HashSet<_> = distribution.values().collect();
+        let expected_ids: HashSet<_> = (0..)
+            .take(
+                self.encoding
+                    .settings()
+                    .data_shards_total
+                    .try_into()
+                    .unwrap(),
+            )
+            .map(|i| &Sid(i))
+            .collect();
+        shard_ids == expected_ids
+    }
+
+    fn initialize(self, distribution: HashMap<PeerId, Sid>) -> InitializedDataMemory {
+        InitializedDataMemory {
+            local_storage: HashMap::new(),
+            to_distribute: HashMap::new(),
+            currently_assembled: HashMap::new(),
+            distribution,
+            bus: self.bus,
+            encoding: self.encoding,
+        }
+    }
+
+    async fn run(
+        mut self,
+        connection: &mut ModuleChannelServer<Module>,
+    ) -> Option<InitializedDataMemory> {
+        loop {
+            // todo: format the code semi-automatically (for each `select!`)
+            tokio::select! {
+                in_event = connection.input.recv() => {
+                    let Some(in_event) = in_event else {
+                        error!("`connection.output` is closed, shuttung down data memory");
+                        return None;
+                    };
+                    match in_event {
+                        InEvent::Initialize { distribution } => {
+                            let distribution = distribution.into_iter().collect();
+                            if !self.verify_distribution(&distribution) {
+                                warn!("received distribution doesn't match expected pattern; \
+                                expected to have a peer for each shard id from 0 to <total shard number>");
+                                continue;
+                            }
+                            info!("storage initialized, ready");
+                            return Some(self.initialize(distribution))
+                        },
+                        InEvent::TrackLocation {
+                            full_shard_id: _,
+                            location: _,
+                        }
+                        | InEvent::PrepareForService {
+                            data_id: _,
+                            data: _,
+                        }
+                        | InEvent::ServeShardRequest(_)
+                        | InEvent::StoreAssigned {
+                            full_shard_id: _,
+                            shard: _,
+                        }
+                        | InEvent::GetAssigned(_)
+                        | InEvent::RecollectData(_)
+                        | InEvent::HandleRequested {
+                            full_shard_id: _,
+                            shard: _,
+                        } => warn!("have not initialize storage, ignoring request {:?}", in_event),
+                    }
+
+                }
+                data_request = self.bus.shard_requests.recv() => {
+                    let Some(data_request) = data_request else {
+                        error!("memory bus is closed, shuttung down data memory");
+                        return None;
+                    };
+                    warn!("have not initialize storage, ignoring request from memory bus");
+                }
+            }
+        }
+    }
+}
 
 /// Async data memory/data manager. Intended to communicate
 /// with behaviour through corresponding [`ModuleChannelServer`] (the
@@ -97,41 +193,15 @@ pub struct PeersToDistributeTo(Arc<Mutex<HashSet>>);
 /// and manages initial distribution (serving) with rebuilding of data.
 ///
 /// Use [`Self::run()`] to operate.
-pub struct DistributedDataMemory {
-    data_locations: HashMap<Vid, HashMap<Sid, PeerId>>,
+struct InitializedDataMemory {
+    // `HashMap<Sid, Shard>` because in the future we might store multiple shards on each peer
     local_storage: HashMap<Vid, HashMap<Sid, Shard>>,
     to_distribute: HashMap<Vid, HashMap<Sid, Shard>>,
     currently_assembled: HashMap<Vid, HashMap<Sid, Shard>>,
-    awaiting_assembles: HashMap<Vid, AwaitingAssembly>,
+    /// `None` means it is the memory (and the system) is not active
+    distribution: HashMap<PeerId, Sid>,
     bus: MemoryBus,
-    encoding: MockEncoding,
-}
-
-enum AwaitingAssembly {
-    ModuleClient,
-    MemoryBus(Vec<oneshot::Sender<Data>>),
-    Both(Vec<oneshot::Sender<Data>>),
-}
-
-impl AwaitingAssembly {
-    fn add_memory_bus_handle(&mut self, handle: oneshot::Sender<Data>) {
-        match self {
-            AwaitingAssembly::ModuleClient => *self = AwaitingAssembly::Both(vec![handle]),
-            AwaitingAssembly::MemoryBus(list) => list.push(handle),
-            AwaitingAssembly::Both(list) => list.push(handle),
-        }
-    }
-    fn add_module_client(&mut self) {
-        match self {
-            AwaitingAssembly::MemoryBus(list) => {
-                // change enum variant to `Both`
-                let mut list_2 = vec![];
-                std::mem::swap(list, &mut list_2);
-                *self = AwaitingAssembly::Both(list_2)
-            }
-            AwaitingAssembly::Both(_) | AwaitingAssembly::ModuleClient => (),
-        }
-    }
+    encoding: ReedSolomonWrapper,
 }
 
 pub enum MemoryBusDataRequest {
@@ -148,12 +218,16 @@ pub enum MemoryBusDataRequest {
 }
 
 struct MemoryBus {
-    shard_requests: mpsc::Receiver<oneshot::Sender<Shard>>,
+    shard_requests: mpsc::Receiver<(Vid, oneshot::Sender<Option<Shard>>)>,
     /// Write results of calculation to assigned shards
     shard_writes: mpsc::Receiver<(Vid, Shard)>,
 }
 
-impl DistributedDataMemory {
+impl InitializedDataMemory {
+    pub fn new(uninitialized: UninitializedDataMemory, distribution: HashMap<PeerId, Sid>) -> Self {
+        uninitialized.initialize(distribution)
+    }
+
     /// Get locally stored shard assigned to this peer, if present
     fn get_shard(&self, full_shard_id: &FullShardId) -> Option<&Shard> {
         let shards = self.local_storage.get(&full_shard_id.0)?;
@@ -177,14 +251,30 @@ impl DistributedDataMemory {
 
     /// Notify the data memory about observed location of some data shard.
     ///
-    /// Data memeory is intended to track the shards (todo: maybe separate this
-    /// responsibility into other module?); it's done via this method.
+    /// Data memeory may track the shards if the distribution becomes
+    /// non-uniform in the future.
     ///
     /// Also this allows to track how many shards were already served and
     /// remove them if no longer needed.
     fn observe_new_location(&mut self, full_shard_id: FullShardId, location: PeerId) {
-        let shards = self.data_locations.entry(full_shard_id.0).or_default();
-        shards.insert(full_shard_id.1, location);
+        if let Some(distributed_shards) = self.to_distribute.get_mut(&full_shard_id.0) {
+            distributed_shards.remove(&full_shard_id.1);
+        }
+        if let Some(expected_location) = self.distribution.get(&location) {
+            if expected_location != &full_shard_id.1 {
+                warn!(
+                    "observed shard at unexpected location. observed at {:?}, expected at {:?}",
+                    &full_shard_id.1, expected_location
+                );
+            }
+        } else {
+            warn!("observed location does not appear in known data distribution. shouldn't happen");
+        }
+
+        // track location
+
+        // let shards = self.data_locations.entry(full_shard_id.0).or_default();
+        // shards.insert(full_shard_id.1, location);
     }
 
     /// Get ready to serve & track the progress of service of data shards during
@@ -208,27 +298,10 @@ impl DistributedDataMemory {
         let shards = self.to_distribute.get(&full_shard_id.0)?;
         shards.get(&full_shard_id.1).cloned()
     }
-
-    // TODO: proper error
-    ///
-    pub fn handle_received_shard(
-        &mut self,
-        data_id: Vid,
-        shard_id: Sid,
-        shard: Shard,
-    ) -> Result<(), ()> {
-        let shards = self.currently_assembled.get_mut(&data_id).ok_or(())?;
-        if shards.contains_key(&shard_id) {
-            return Err(());
-        }
-        shards.insert(shard_id, shard);
-        // check if # is enough & respond to request.
-        todo!()
-    }
 }
 
-impl DistributedDataMemory {
-    async fn run(mut self, mut connection: ModuleChannelServer<Module>) {
+impl InitializedDataMemory {
+    async fn run(mut self, connection: &mut ModuleChannelServer<Module>) {
         loop {
             // todo: format the code semi-automatically (for each `select!`)
             tokio::select! {
@@ -242,8 +315,11 @@ impl DistributedDataMemory {
                     //     return;
                     // }
                     match in_event {
+                        InEvent::Initialize { distribution } => {
+                            warn!("received `InitializeStorage` transaction but storage was already initialized. ignoring");
+                        },
                         // initial distribution
-                        InEvent::TrackLocation { full_shard_id, location } => todo!(),
+                        InEvent::TrackLocation { full_shard_id, location } => self.observe_new_location(full_shard_id, location),
                         InEvent::PrepareForService { data_id, data } => {
                             let shards = self.encoding.encode(data).expect(
                                 "Encoding settings are likely incorrect, \
@@ -253,7 +329,7 @@ impl DistributedDataMemory {
                                 warn!("data was already serviced at id {:?}. discarding previous distribution.", data_id);
                             }
                             if let Err(_) = connection.output.send(
-                                OutEvent::PreparedForService { data_id, distribution: todo!() }
+                                OutEvent::PreparedForService { data_id }
                             ).await {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return;
@@ -261,20 +337,27 @@ impl DistributedDataMemory {
                         },
                         InEvent::ServeShardRequest(_) => todo!(),
                         // assigned data
-                        InEvent::StoreAssigned { full_shard_id, shard } => todo!(),
-                        InEvent::GetAssigned(_) => todo!(),
+                        InEvent::StoreAssigned { full_shard_id, shard } => {
+                            self.store_shard(full_shard_id.clone(), shard);
+                            if let Err(_) = connection.output.send(OutEvent::AssignedStoreSuccess(full_shard_id)).await {
+                                error!("`connection.output` is closed, shuttung down data memory");
+                                return;
+                            }
+                        },
+                        InEvent::GetAssigned(full_shard_id) => {
+                            let shard = self.get_shard(&full_shard_id);
+                            if let Err(_) = connection.output.send(OutEvent::AssignedShard { full_shard_id, shard: shard.cloned() }).await {
+                                error!("`connection.output` is closed, shuttung down data memory");
+                                return;
+                            }
+                        },
                         // data recollection
                         InEvent::RecollectData(data_id) => {
                             match self.currently_assembled.entry(data_id.clone()) {
                                 // requests were already sent, just join the waiting list
                                 hash_map::Entry::Occupied(_) => (),
                                 hash_map::Entry::Vacant(v) => {
-                                    // yes, code duplication. what are you gonna do? 🤨
-                                    let Some(locations) = self.data_locations.get(&data_id) else {
-                                        warn!("user requested unknown data, ignoring");
-                                        continue;
-                                    };
-                                    for (shard, owner) in locations {
+                                    for (owner, shard) in &self.distribution {
                                         if let Err(_) = connection.output.send(OutEvent::RequestAssigned{
                                             full_shard_id: (data_id.clone(), shard.clone()),
                                             location: owner.clone()
@@ -286,9 +369,6 @@ impl DistributedDataMemory {
                                     v.insert(HashMap::new());
                                 },
                             }
-                            let awaiting_assembles = self.awaiting_assembles.entry(data_id)
-                                .or_insert(AwaitingAssembly::ModuleClient);
-                            awaiting_assembles.add_module_client();
                         },
                         InEvent::HandleRequested { full_shard_id, shard } => {
                             if let Some(received_shards) = self.currently_assembled.get_mut(&full_shard_id.0) {
@@ -300,39 +380,19 @@ impl DistributedDataMemory {
                                             .try_into()
                                             .expect("# of shards sufficient is too large")
                                     {
+                                        // # of shards is sufficient to reassemble
                                         let shards = self.currently_assembled.remove(&full_shard_id.0).expect("Just had this entry");
                                         let data = match self.encoding.decode(shards) {
                                             Ok(data) => data,
                                             Err(e) => {
                                                 // todo: handle better
                                                 warn!("Collected enough shards but failed to decode: {}", e);
-                                                self.awaiting_assembles.remove(&full_shard_id.0);
                                                 continue;
                                             },
                                         };
-                                        let Some(to_notify) = self.awaiting_assembles.remove(&full_shard_id.0) else {
-                                            continue;
-                                        };
-                                        // todo: send arc instead of cloning, receivers can clone themselves if needed
-                                        // shouldn't matter too much though; there aren't many clones expected
-                                        match &to_notify {
-                                            AwaitingAssembly::ModuleClient | AwaitingAssembly::Both(_) => {
-                                                if let Err(_) = connection.output.send(OutEvent::FinishedRecollection { data_id: full_shard_id.0, data: data.clone() }).await {
-                                                    error!("`connection.output` is closed, shuttung down data memory");
-                                                    return;
-                                                }
-                                            },
-                                            AwaitingAssembly::MemoryBus(_) => (),
-                                        }
-                                        match to_notify {
-                                            AwaitingAssembly::MemoryBus(response_handles) | AwaitingAssembly::Both(response_handles) => {
-                                                for handle in response_handles {
-                                                    if let Err(_) = handle.send(data.clone()) {
-                                                        warn!("receiving handle (memory bus) dropped for some reason, ignoring");
-                                                    }
-                                                }
-                                            },
-                                            AwaitingAssembly::ModuleClient => (),
+                                        if let Err(_) = connection.output.send(OutEvent::FinishedRecollection { data_id: full_shard_id.0, data: data.clone() }).await {
+                                            error!("`connection.output` is closed, shuttung down data memory");
+                                            return;
                                         }
                                     }
                                 }
@@ -348,53 +408,42 @@ impl DistributedDataMemory {
                     }
                 }
                 data_request = self.bus.shard_requests.recv() => {
-                    let Some(data_request) = data_request else {
+                    let Some((data_id, response_handle)) = data_request else {
                         error!("memory bus is closed, shuttung down data memory");
                         return;
                     };
-                    match data_request {
-                        MemoryBusDataRequest::Assemble { data_id, response_handle } => {
-                            match self.currently_assembled.entry(data_id.clone()) {
-                                // requests were already sent, just join the waiting list
-                                hash_map::Entry::Occupied(_) => (),
-                                hash_map::Entry::Vacant(v) => {
-                                    // yes, code duplication. what are you gonna do? 🤨
-                                    let Some(locations) = self.data_locations.get(&data_id) else {
-                                        warn!("memory bus requested unknown data, ignoring");
-                                        continue;
-                                    };
-                                    for (shard, owner) in locations {
-                                        if let Err(_) = connection.output.send(OutEvent::RequestAssigned{
-                                            full_shard_id: (data_id.clone(), shard.clone()),
-                                            location: owner.clone()
-                                        }).await {
-                                            error!("`connection.output` is closed, shuttung down data memory");
-                                            return;
-                                        }
-                                    }
-                                    v.insert(HashMap::new());
-                                },
-                            }
-                            let awaiting_assembles = self.awaiting_assembles.entry(data_id)
-                                .or_insert(AwaitingAssembly::MemoryBus(vec![]));
-                            awaiting_assembles.add_memory_bus_handle(response_handle);
-                        },
-                        MemoryBusDataRequest::AssignedShard { data_id, response_handle } => {
-                            let shards: Vec<_> = self.local_storage.get(&data_id)
-                                .map(|mapping| mapping
-                                    .values()
-                                    .into_iter()
-                                    .cloned()
-                                    .collect())
-                                .unwrap_or_default();
-                            if let Err(e) = response_handle.send(shards) {
-                                warn!("response handle for memory bus request is closed, shouldn't happen \
-                                    but let's try to continue operation");
-                            }
-                        },
+                    let shards: Vec<_> = self.local_storage.get(&data_id)
+                        .map(|mapping| mapping
+                            .values()
+                            .into_iter()
+                            .cloned()
+                            .collect())
+                        .unwrap_or_default();
+                    if let Err(e) = response_handle.send(shards.get(0).cloned()) {
+                        warn!("response handle for memory bus request is closed, shouldn't happen \
+                            but let's try to continue operation");
                     }
                 }
             }
         }
+    }
+}
+
+pub struct DistributedDataMemory {
+    uninit: UninitializedDataMemory,
+}
+
+impl DistributedDataMemory {
+    pub fn new(bus: MemoryBus, encoding_settings: reed_solomon::Settings) -> Self {
+        Self {
+            uninit: UninitializedDataMemory::new(bus, encoding_settings),
+        }
+    }
+
+    pub async fn run(self, mut connection: ModuleChannelServer<Module>) {
+        let Some(init) = self.uninit.run(&mut connection).await else {
+            return;
+        };
+        init.run(&mut connection).await;
     }
 }
