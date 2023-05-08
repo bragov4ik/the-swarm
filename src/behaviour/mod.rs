@@ -54,7 +54,7 @@ mod module {
     impl crate::Module for Module {
         type InEvent = InEvent;
         type OutEvent = OutEvent;
-        type State = ();
+        type SharedState = ();
     }
 
     pub enum InEvent {
@@ -87,13 +87,13 @@ struct ConnectionError {
 pub struct ModuleChannelServer<M: Module> {
     pub input: mpsc::Receiver<M::InEvent>,
     pub output: mpsc::Sender<M::OutEvent>,
-    state: Option<Arc<Mutex<M::State>>>,
+    state: Option<Arc<Mutex<M::SharedState>>>,
 }
 
 pub struct ModuleChannelClient<M: Module> {
     input: mpsc::Sender<M::InEvent>,
     output: mpsc::Receiver<M::OutEvent>,
-    state: Option<Arc<Mutex<M::State>>>,
+    state: Option<Arc<Mutex<M::SharedState>>>,
 }
 
 impl<M: Module> ModuleChannelClient<M> {

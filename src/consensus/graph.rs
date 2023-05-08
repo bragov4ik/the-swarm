@@ -27,7 +27,7 @@ pub struct Module;
 impl crate::Module for Module {
     type InEvent = InEvent;
     type OutEvent = OutEvent;
-    type State = ();
+    type SharedState = ();
 }
 
 pub enum OutEvent {

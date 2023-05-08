@@ -26,6 +26,8 @@ macro_rules! impl_unary {
     };
 }
 
+// todo: add instruction to save some result. will include distribution n stuff.
+// is needed actually???? with proper reed&solomon, likely no
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub struct Instruction<TOperand, TResult> {
     pub operation: Operation<TOperand>,

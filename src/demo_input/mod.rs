@@ -48,7 +48,7 @@ where
     P: AsRef<Path>,
 {
     let test_data = InputData {
-        data_layout: vec![(Vid(1), [1, 2, 3, 4]), (Vid(2), [1337, 322, 123, -1])],
+        data_layout: vec![(Vid(1), [1, 2, 3, 4]), (Vid(2), [37, 144, 123, 1])],
         instructions: vec![
             Instruction::plus(Vid(1), Vid(2), Vid(3)),
             Instruction::dot(Vid(1), Vid(2), Vid(4)),

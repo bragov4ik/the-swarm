@@ -11,14 +11,18 @@ pub struct Vid(pub u64);
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Hash)]
 pub struct Sid(pub u64);
 
+pub const SHARD_BYTES_NUMBER: u64 = 4;
+// parity shards are configured dynamically
+pub const DATA_SHARDS_COUNT: u64 = 3;
+
 /// Type/struct that represents unit of data stored on nodes.
 /// Should be actual data shard (erasure coded) in the future, but
 /// right now for demonstration purposes, represents vector(array) of size 4.
 // #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub type Shard = [i32; 4];
+pub type Shard = [u8; SHARD_BYTES_NUMBER as usize];
 
 /// for now just splits into three parts
-pub type Data = [i32; 12];
+pub type Data = [u8; (SHARD_BYTES_NUMBER * DATA_SHARDS_COUNT) as usize];
 
 /// Graph representation that is passed on random gossip.
 pub type GraphSync = SyncJobs<Vid, Sid>;

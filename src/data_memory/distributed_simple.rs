@@ -18,7 +18,7 @@ pub struct Module;
 impl crate::Module for Module {
     type InEvent = InEvent;
     type OutEvent = OutEvent;
-    type State = ();
+    type SharedState = ();
 }
 
 pub type FullShardId = (Vid, Sid);
@@ -67,7 +67,7 @@ pub enum InEvent {
     /// The shard was requested for storage by another node
     ServeShardRequest(FullShardId),
 
-    // assigned
+    // assigned data
     /// Store shard assigned to this node
     StoreAssigned {
         full_shard_id: FullShardId,
@@ -86,6 +86,8 @@ pub enum InEvent {
         shard: Shard,
     },
 }
+
+pub struct PeersToDistributeTo(Arc<Mutex<HashSet>>);
 
 /// Async data memory/data manager. Intended to communicate
 /// with behaviour through corresponding [`ModuleChannelServer`] (the
@@ -139,16 +141,16 @@ pub enum MemoryBusDataRequest {
         response_handle: oneshot::Sender<Data>,
     },
     /// Only pass locally stored shard(-s?)
-    AssignedShards {
+    AssignedShard {
         data_id: Vid,
-        response_handle: oneshot::Sender<Vec<Shard>>,
+        response_handle: oneshot::Sender<Shard>,
     },
 }
 
 struct MemoryBus {
-    data_requests: mpsc::Receiver<MemoryBusDataRequest>,
+    shard_requests: mpsc::Receiver<oneshot::Sender<Shard>>,
     /// Write results of calculation to assigned shards
-    data_writes: mpsc::Receiver<(Vid, Vec<Shard>)>,
+    shard_writes: mpsc::Receiver<(Vid, Shard)>,
 }
 
 impl DistributedDataMemory {
@@ -228,6 +230,7 @@ impl DistributedDataMemory {
 impl DistributedDataMemory {
     async fn run(mut self, mut connection: ModuleChannelServer<Module>) {
         loop {
+            // todo: format the code semi-automatically (for each `select!`)
             tokio::select! {
                 in_event = connection.input.recv() => {
                     let Some(in_event) = in_event else {
@@ -239,11 +242,28 @@ impl DistributedDataMemory {
                     //     return;
                     // }
                     match in_event {
+                        // initial distribution
                         InEvent::TrackLocation { full_shard_id, location } => todo!(),
-                        InEvent::PrepareForService { data_id, data } => todo!(),
+                        InEvent::PrepareForService { data_id, data } => {
+                            let shards = self.encoding.encode(data).expect(
+                                "Encoding settings are likely incorrect, \
+                                all problems should've been caught at type-level"
+                            );
+                            if let Some(_) = self.to_distribute.insert(data_id.clone(), shards) {
+                                warn!("data was already serviced at id {:?}. discarding previous distribution.", data_id);
+                            }
+                            if let Err(_) = connection.output.send(
+                                OutEvent::PreparedForService { data_id, distribution: todo!() }
+                            ).await {
+                                error!("`connection.output` is closed, shuttung down data memory");
+                                return;
+                            }
+                        },
                         InEvent::ServeShardRequest(_) => todo!(),
+                        // assigned data
                         InEvent::StoreAssigned { full_shard_id, shard } => todo!(),
                         InEvent::GetAssigned(_) => todo!(),
+                        // data recollection
                         InEvent::RecollectData(data_id) => {
                             match self.currently_assembled.entry(data_id.clone()) {
                                 // requests were already sent, just join the waiting list
@@ -274,7 +294,12 @@ impl DistributedDataMemory {
                             if let Some(received_shards) = self.currently_assembled.get_mut(&full_shard_id.0) {
                                 if !received_shards.contains_key(&full_shard_id.1) {
                                     received_shards.insert(full_shard_id.1, shard);
-                                    if received_shards.len() >= self.encoding.settings().data_shards_sufficient.try_into().expect("# of shards sufficient is too large") {
+                                    if received_shards.len()
+                                        >= self.encoding.settings()
+                                            .data_shards_sufficient
+                                            .try_into()
+                                            .expect("# of shards sufficient is too large")
+                                    {
                                         let shards = self.currently_assembled.remove(&full_shard_id.0).expect("Just had this entry");
                                         let data = match self.encoding.decode(shards) {
                                             Ok(data) => data,
@@ -322,7 +347,7 @@ impl DistributedDataMemory {
                         },
                     }
                 }
-                data_request = self.bus.data_requests.recv() => {
+                data_request = self.bus.shard_requests.recv() => {
                     let Some(data_request) = data_request else {
                         error!("memory bus is closed, shuttung down data memory");
                         return;
@@ -354,7 +379,7 @@ impl DistributedDataMemory {
                                 .or_insert(AwaitingAssembly::MemoryBus(vec![]));
                             awaiting_assembles.add_memory_bus_handle(response_handle);
                         },
-                        MemoryBusDataRequest::AssignedShards { data_id, response_handle } => {
+                        MemoryBusDataRequest::AssignedShard { data_id, response_handle } => {
                             let shards: Vec<_> = self.local_storage.get(&data_id)
                                 .map(|mapping| mapping
                                     .values()

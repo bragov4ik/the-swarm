@@ -1,13 +1,14 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use libp2p::PeerId;
 use thiserror::Error;
 
 use crate::types::{Data, Shard, Sid};
 
-use super::{DataEncoding, EncodingSettings};
+use super::{DataEncoding, MockEncodingSettings};
 
 pub struct MockEncoding {
-    settings: EncodingSettings,
+    settings: MockEncodingSettings,
 }
 
 #[derive(Error, Debug)]
@@ -16,7 +17,7 @@ pub enum Error {
     NotEnoughShards,
 }
 
-impl DataEncoding<Data, Sid, Shard, Error> for MockEncoding {
+impl DataEncoding<Data, Sid, Shard, MockEncodingSettings, Error> for MockEncoding {
     fn encode(&self, data: Data) -> Result<HashMap<Sid, Shard>, Error> {
         let shards: HashMap<Sid, Shard> = data
             .chunks_exact(4)
@@ -45,15 +46,25 @@ impl DataEncoding<Data, Sid, Shard, Error> for MockEncoding {
         kek.try_into().map_err(|_| Error::NotEnoughShards)
     }
 
-    fn settings(&self) -> EncodingSettings {
+    fn settings(&self) -> MockEncodingSettings {
         self.settings.clone()
     }
 }
 
+// impl MockEncoding {
+//     fn generate_distribution(&self, other_peers: HashSet<PeerId>, shard_ids: Vec<Sid>) -> HashMap<Sid, PeerId> {
+//         // too complex to do properly
+//         // let's do reed solomon right away. won't have to worry about saving local after execution done (or do we?)
+//         // think about additional ops where we need to actually recollect
+//     }
+// }
+
 #[cfg(test)]
 mod tests {
+    use libp2p::PeerId;
+
     use crate::{
-        encoding::{DataEncoding, EncodingSettings},
+        encoding::{DataEncoding, MockEncodingSettings},
         types::Sid,
     };
 
@@ -62,9 +73,11 @@ mod tests {
     #[test]
     fn it_works() {
         let encoding = MockEncoding {
-            settings: EncodingSettings {
+            settings: MockEncodingSettings {
                 data_shards_total: 3,
                 data_shards_sufficient: 3,
+                locally_assigned_id: Sid(0),
+                self_id: PeerId::random(), // doesn't affect the test
             },
         };
         let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];

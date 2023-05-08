@@ -59,7 +59,7 @@ enum CombinedBehaviourEvent {
 pub trait Module {
     type InEvent;
     type OutEvent;
-    type State: State;
+    type SharedState: State;
 }
 
 pub trait State {
