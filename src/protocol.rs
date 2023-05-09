@@ -19,9 +19,9 @@ use crate::types::{GraphSync, Shard, Sid, Vid};
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Request {
     /// "Give me a shard `Sid` for data `Vid` pls".
-    /// For purposes of calculation or rebuilding of data.
+    /// For purposes of rebuilding data.
     GetShard((Vid, Sid)),
-    /// "I want to store this shard that you distribute, please give it to me".
+    /// "I want to store this shard that you distribute, please serve it to me".
     ServeShard((Vid, Sid)),
 }
 

@@ -2,6 +2,7 @@ use std::collections::{hash_map, HashMap, HashSet};
 
 use futures::channel::oneshot;
 use libp2p::PeerId;
+use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -25,30 +26,46 @@ impl crate::Module for Module {
 pub type FullShardId = (Vid, Sid);
 
 pub enum OutEvent {
-    // initial distribution
-    /// Ready to answer to `ServeShard` and decided distribution of shards
-    /// accross peers
-    PreparedForService { data_id: Vid },
-    /// The shard that was requested to store here
+    // Data distribution
+    /// 1. Prepare to serve the shards to nodes
+    /// - (server node) Done!
+    PreparedServiceResponse(Vid),
+    /// 2. The nodes see storage request transaction and pull assigned shards
+    /// - (pulling node) this node requests a served shard from author of
+    /// `StorageRequest` tx
+    ServeShardRequest(FullShardId, PeerId),
+    /// 2. The nodes see storage request transaction and pull assigned shards
+    /// - (server node) The shard is sent (not considered distributed yet!)
     ServeShardResponse(FullShardId, Option<Shard>),
-
-    // assigned
-    /// Successfully stored newly assigned shard
+    /// 2. The nodes see storage request transaction and pull assigned shards
+    /// - this node now stores the assigned shard, need to notify it in consensus!
     AssignedStoreSuccess(FullShardId),
-    /// Give requested assigned shard
-    AssignedShard {
-        full_shard_id: FullShardId,
-        shard: Option<Shard>,
-    },
+    /// 3. Enough storage confirmations were seen, consider the data to be distributed
+    /// successfully (though continue to serve remaining)
+    DistributionSuccess(Vid),
+
+    // Assigned & locally stored data
+    /// (server) Return requested assigned shard
+    AssignedResponse(FullShardId, Option<Shard>),
+    /// (requester) Requesting the shard from the peer
+    AssignedRequest(FullShardId, PeerId),
+    /// List of successfully stored data ids
+    ListDistributed(Vec<(Vid, HashMap<Sid, PeerId>)>),
 
     // data recollection
-    /// Need the shard from peer `location`
-    RequestAssigned {
-        full_shard_id: FullShardId,
-        location: PeerId,
-    },
     /// Successfully assembled data, ready to provide it to the user
-    FinishedRecollection { data_id: Vid, data: Data },
+    RecollectResponse(Result<(Vid, Data), RecollectionError>),
+}
+
+#[derive(Debug, Error)]
+pub enum RecollectionError {
+    #[error(
+        "Data id requested is not known to be stored in the system at all. \
+    You might need to wait for it to appear"
+    )]
+    UnkonwnDataId,
+    #[error("The data is not fully distributed, hopefully 'yet'")]
+    NotEnoughShards,
 }
 
 #[derive(Debug)]
@@ -57,54 +74,67 @@ pub enum InEvent {
         distribution: Vec<(PeerId, Sid)>,
     },
 
-    // initial distribution
-    // will store the location & set shard as successfully served if applicable
-    TrackLocation {
-        full_shard_id: FullShardId,
-        location: PeerId,
-    },
-    PrepareForService {
+    // Data distribution
+    /// 1. Prepare to serve the shards to nodes
+    /// (server node)
+    PrepareServiceRequest {
         data_id: Vid,
         data: Data,
     },
-    /// The shard was requested for storage by another node
+    /// 2. The nodes see storage request transaction and pull assigned shards
+    /// - (pulling node) this node sees the storage request transaction authored
+    /// by a certain peer
+    StorageRequestTx(Vid, PeerId),
+    /// 2. The nodes see storage request transaction and pull assigned shards
+    /// - (pulling node) The shard is sent (not considered distributed yet!)
+    ServeShardResponse(FullShardId, Option<Shard>),
+    /// 2. The nodes see storage request transaction and pull assigned shards
+    /// - (server node) the request for pull came to this node
     ServeShardRequest(FullShardId),
+    /// 2. The nodes see storage request transaction and pull assigned shards
+    /// - received confirmation from consensus that the node announced
+    /// successful storage of this shard!
+    StoreConfirmed {
+        full_shard_id: FullShardId,
+        location: PeerId,
+    },
 
-    // assigned data
-    /// Store shard assigned to this node
-    StoreAssigned {
+    // Already distributed & stored data
+    /// (server) Give shard assigned to the node
+    AssignedRequest(FullShardId),
+    /// (requester) Receive previously requested shard
+    AssignedResponse {
         full_shard_id: FullShardId,
         shard: Shard,
     },
-    /// Give shard assigned to the node
-    GetAssigned(FullShardId),
+    /// List of successfully stored data ids
+    ListDistributed,
 
     // data recollection
     /// Recollect data with given id, request by user
-    RecollectData(Vid),
-
-    /// Handle shard that was previously requested by us
-    HandleRequested {
-        full_shard_id: FullShardId,
-        shard: Shard,
-    },
+    RecollectRequest(Vid),
 }
 
 pub struct UninitializedDataMemory {
     bus: MemoryBus,
     encoding: ReedSolomonWrapper,
+    local_id: PeerId,
 }
 
 impl UninitializedDataMemory {
-    fn new(bus: MemoryBus, encoding_settings: reed_solomon::Settings) -> Self {
+    fn new(local_id: PeerId, bus: MemoryBus, encoding_settings: reed_solomon::Settings) -> Self {
         let encoding = ReedSolomonWrapper::new(encoding_settings);
-        Self { bus, encoding }
+        Self {
+            bus,
+            encoding,
+            local_id,
+        }
     }
 
     /// `true` == valid
     fn verify_distribution(&self, distribution: &HashMap<PeerId, Sid>) -> bool {
         let shard_ids: HashSet<_> = distribution.values().collect();
-        let expected_ids: HashSet<_> = (0..)
+        let expected_ids_owned: HashSet<_> = (0..)
             .take(
                 self.encoding
                     .settings()
@@ -112,8 +142,9 @@ impl UninitializedDataMemory {
                     .try_into()
                     .unwrap(),
             )
-            .map(|i| &Sid(i))
+            .map(|i| Sid(i))
             .collect();
+        let expected_ids: HashSet<_> = expected_ids_owned.iter().collect();
         shard_ids == expected_ids
     }
 
@@ -123,8 +154,10 @@ impl UninitializedDataMemory {
             to_distribute: HashMap::new(),
             currently_assembled: HashMap::new(),
             distribution,
+            local_id: self.local_id,
             bus: self.bus,
             encoding: self.encoding,
+            data_known_locations: HashMap::new(),
         }
     }
 
@@ -151,34 +184,40 @@ impl UninitializedDataMemory {
                             info!("storage initialized, ready");
                             return Some(self.initialize(distribution))
                         },
-                        InEvent::TrackLocation {
+                        InEvent::StoreConfirmed {
                             full_shard_id: _,
                             location: _,
                         }
-                        | InEvent::PrepareForService {
+                        | InEvent::PrepareServiceRequest {
                             data_id: _,
                             data: _,
                         }
+                        | InEvent::StorageRequestTx(_, _)
                         | InEvent::ServeShardRequest(_)
-                        | InEvent::StoreAssigned {
-                            full_shard_id: _,
-                            shard: _,
-                        }
-                        | InEvent::GetAssigned(_)
-                        | InEvent::RecollectData(_)
-                        | InEvent::HandleRequested {
+                        | InEvent::ServeShardResponse(_, _)
+                        | InEvent::AssignedRequest(_)
+                        | InEvent::ListDistributed
+                        | InEvent::RecollectRequest(_)
+                        | InEvent::AssignedResponse {
                             full_shard_id: _,
                             shard: _,
                         } => warn!("have not initialize storage, ignoring request {:?}", in_event),
                     }
 
                 }
-                data_request = self.bus.shard_requests.recv() => {
-                    let Some(data_request) = data_request else {
+                data_request = self.bus.reads.recv() => {
+                    let Some(_) = data_request else {
                         error!("memory bus is closed, shuttung down data memory");
                         return None;
                     };
-                    warn!("have not initialize storage, ignoring request from memory bus");
+                    warn!("have not initialized storage, ignoring read request from memory bus");
+                }
+                write_request = self.bus.writes.recv() => {
+                    let Some(_) = write_request else {
+                        error!("memory bus is closed, shuttung down data memory");
+                        return None;
+                    };
+                    warn!("have not initialized storage, ignoring write request from memory bus");
                 }
             }
         }
@@ -200,6 +239,8 @@ struct InitializedDataMemory {
     currently_assembled: HashMap<Vid, HashMap<Sid, Shard>>,
     /// `None` means it is the memory (and the system) is not active
     distribution: HashMap<PeerId, Sid>,
+    data_known_locations: HashMap<Vid, HashMap<Sid, PeerId>>,
+    local_id: PeerId,
     bus: MemoryBus,
     encoding: ReedSolomonWrapper,
 }
@@ -217,15 +258,19 @@ pub enum MemoryBusDataRequest {
     },
 }
 
-struct MemoryBus {
-    shard_requests: mpsc::Receiver<(Vid, oneshot::Sender<Option<Shard>>)>,
-    /// Write results of calculation to assigned shards
-    shard_writes: mpsc::Receiver<(Vid, Shard)>,
+pub struct MemoryBus {
+    reads: mpsc::Receiver<(Vid, oneshot::Sender<Option<Shard>>)>,
+    /// Store new value of the assigned shard
+    writes: mpsc::Receiver<(Vid, Shard)>,
 }
 
 impl InitializedDataMemory {
     pub fn new(uninitialized: UninitializedDataMemory, distribution: HashMap<PeerId, Sid>) -> Self {
         uninitialized.initialize(distribution)
+    }
+
+    fn assigned_shard_id(&self) -> Option<&Sid> {
+        self.distribution.get(&self.local_id)
     }
 
     /// Get locally stored shard assigned to this peer, if present
@@ -271,10 +316,12 @@ impl InitializedDataMemory {
             warn!("observed location does not appear in known data distribution. shouldn't happen");
         }
 
-        // track location
-
-        // let shards = self.data_locations.entry(full_shard_id.0).or_default();
-        // shards.insert(full_shard_id.1, location);
+        // need to track location to count successful distributions
+        let shards = self
+            .data_known_locations
+            .entry(full_shard_id.0)
+            .or_default();
+        shards.insert(full_shard_id.1, location);
     }
 
     /// Get ready to serve & track the progress of service of data shards during
@@ -319,49 +366,118 @@ impl InitializedDataMemory {
                             warn!("received `InitializeStorage` transaction but storage was already initialized. ignoring");
                         },
                         // initial distribution
-                        InEvent::TrackLocation { full_shard_id, location } => self.observe_new_location(full_shard_id, location),
-                        InEvent::PrepareForService { data_id, data } => {
+                        InEvent::PrepareServiceRequest { data_id, data } => {
                             let shards = self.encoding.encode(data).expect(
                                 "Encoding settings are likely incorrect, \
                                 all problems should've been caught at type-level"
                             );
-                            if let Some(_) = self.to_distribute.insert(data_id.clone(), shards) {
-                                warn!("data was already serviced at id {:?}. discarding previous distribution.", data_id);
-                            }
+                            self.prepare_to_serve_shards(data_id.clone(), shards);
                             if let Err(_) = connection.output.send(
-                                OutEvent::PreparedForService { data_id }
+                                OutEvent::PreparedServiceResponse(data_id)
                             ).await {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return;
                             }
                         },
-                        InEvent::ServeShardRequest(_) => todo!(),
+                        InEvent::StorageRequestTx(data_id, author) => {
+                            let Some(assigned_sid) = self.assigned_shard_id() else {
+                                debug!("see a storage request transaction from consensus, \
+                                but no shard ids are assigned to this peer. ignoring.");
+                                continue;
+                            };
+                            if let Err(_) = connection.output.send(
+                                OutEvent::ServeShardRequest((data_id, assigned_sid.clone()), author)
+                            ).await {
+                                error!("`connection.output` is closed, shuttung down data memory");
+                                return;
+                            }
+                        },
+                        InEvent::ServeShardRequest(full_shard_id) => {
+                            let shard = self.serve_shard(&full_shard_id);
+                            if let Err(_) = connection.output.send(OutEvent::ServeShardResponse(full_shard_id, shard)).await {
+                                error!("`connection.output` is closed, shuttung down data memory");
+                                return;
+                            }
+                        },
                         // assigned data
-                        InEvent::StoreAssigned { full_shard_id, shard } => {
+                        InEvent::ServeShardResponse(full_shard_id, shard) => {
+                            let Some(shard) = shard else {
+                                warn!("peer that announced event distribution doesn't have shard assigned to us. strange but ok.");
+                                continue;
+                            };
                             self.store_shard(full_shard_id.clone(), shard);
                             if let Err(_) = connection.output.send(OutEvent::AssignedStoreSuccess(full_shard_id)).await {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return;
                             }
                         },
-                        InEvent::GetAssigned(full_shard_id) => {
+                        InEvent::StoreConfirmed { full_shard_id, location } => {
+                            self.observe_new_location(full_shard_id.clone(), location);
+                            let Some(this_data_locations) = self.data_known_locations.get(&full_shard_id.0) else {
+                                warn!("bug in tracking data locations, new locations are not registered for some reason");
+                                continue;
+                            };
+                            let sufficient_shards: usize = self.encoding.settings().data_shards_sufficient.try_into().unwrap();
+                            if this_data_locations.len() == sufficient_shards {
+                                if let Err(_) = connection.output.send(
+                                    OutEvent::DistributionSuccess(full_shard_id.0)
+                                ).await {
+                                    error!("`connection.output` is closed, shuttung down data memory");
+                                    return;
+                                }
+                            }
+                        },
+                        InEvent::AssignedRequest(full_shard_id) => {
                             let shard = self.get_shard(&full_shard_id);
-                            if let Err(_) = connection.output.send(OutEvent::AssignedShard { full_shard_id, shard: shard.cloned() }).await {
+                            if let Err(_) = connection.output.send(OutEvent::AssignedResponse(full_shard_id, shard.cloned())).await {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return;
                             }
                         },
+                        InEvent::ListDistributed => {
+                            let sufficient_shards = self.encoding.settings().data_shards_sufficient;
+                            let distributed = self.data_known_locations.iter()
+                                .filter(|(_, locations)| locations.len() >= sufficient_shards.try_into().unwrap())
+                                .map(|(a, b)| (a.clone(), b.clone()))
+                                .collect();
+                            if let Err(_) = connection.output.send(OutEvent::ListDistributed(distributed)).await {
+                                error!("`connection.output` is closed, shuttung down data memory");
+                                return;
+                            }
+                        }
                         // data recollection
-                        InEvent::RecollectData(data_id) => {
+                        InEvent::RecollectRequest(data_id) => {
+                            let Some(known_locations) = self.data_known_locations.get(&data_id) else {
+                                if let Err(_) = connection.output.send(
+                                    OutEvent::RecollectResponse(Err(RecollectionError::UnkonwnDataId))
+                                ).await {
+                                    error!("`connection.output` is closed, shuttung down data memory");
+                                    return;
+                                }
+                                continue;
+                            };
+                            let sufficient_shards_n = self.encoding.settings()
+                                .data_shards_sufficient
+                                .try_into()
+                                .expect("# of shards sufficient is too large");
+                            if known_locations.len() < sufficient_shards_n {
+                                if let Err(_) = connection.output.send(
+                                    OutEvent::RecollectResponse(Err(RecollectionError::NotEnoughShards))
+                                ).await {
+                                    error!("`connection.output` is closed, shuttung down data memory");
+                                    return;
+                                }
+                                continue;
+                            }
                             match self.currently_assembled.entry(data_id.clone()) {
                                 // requests were already sent, just join the waiting list
                                 hash_map::Entry::Occupied(_) => (),
                                 hash_map::Entry::Vacant(v) => {
-                                    for (owner, shard) in &self.distribution {
-                                        if let Err(_) = connection.output.send(OutEvent::RequestAssigned{
-                                            full_shard_id: (data_id.clone(), shard.clone()),
-                                            location: owner.clone()
-                                        }).await {
+                                    for (shard, owner) in known_locations {
+                                        if let Err(_) = connection.output.send(OutEvent::AssignedRequest(
+                                            (data_id.clone(), shard.clone()),
+                                            owner.clone()
+                                        )).await {
                                             error!("`connection.output` is closed, shuttung down data memory");
                                             return;
                                         }
@@ -370,16 +486,15 @@ impl InitializedDataMemory {
                                 },
                             }
                         },
-                        InEvent::HandleRequested { full_shard_id, shard } => {
+                        InEvent::AssignedResponse { full_shard_id, shard } => {
                             if let Some(received_shards) = self.currently_assembled.get_mut(&full_shard_id.0) {
                                 if !received_shards.contains_key(&full_shard_id.1) {
                                     received_shards.insert(full_shard_id.1, shard);
-                                    if received_shards.len()
-                                        >= self.encoding.settings()
+                                    let sufficient_shards_n = self.encoding.settings()
                                             .data_shards_sufficient
                                             .try_into()
-                                            .expect("# of shards sufficient is too large")
-                                    {
+                                            .expect("# of shards sufficient is too large");
+                                    if received_shards.len() >= sufficient_shards_n {
                                         // # of shards is sufficient to reassemble
                                         let shards = self.currently_assembled.remove(&full_shard_id.0).expect("Just had this entry");
                                         let data = match self.encoding.decode(shards) {
@@ -390,7 +505,11 @@ impl InitializedDataMemory {
                                                 continue;
                                             },
                                         };
-                                        if let Err(_) = connection.output.send(OutEvent::FinishedRecollection { data_id: full_shard_id.0, data: data.clone() }).await {
+                                        if let Err(_) = connection.output.send(
+                                            OutEvent::RecollectResponse(Ok(
+                                                (full_shard_id.0, data.clone())
+                                            ))
+                                        ).await {
                                             error!("`connection.output` is closed, shuttung down data memory");
                                             return;
                                         }
@@ -407,7 +526,7 @@ impl InitializedDataMemory {
                         },
                     }
                 }
-                data_request = self.bus.shard_requests.recv() => {
+                data_request = self.bus.reads.recv() => {
                     let Some((data_id, response_handle)) = data_request else {
                         error!("memory bus is closed, shuttung down data memory");
                         return;
@@ -424,6 +543,17 @@ impl InitializedDataMemory {
                             but let's try to continue operation");
                     }
                 }
+                write_request = self.bus.writes.recv() => {
+                    let Some((data_id, shard)) = write_request else {
+                        error!("memory bus is closed, shuttung down data memory");
+                        return;
+                    };
+                    let Some(assigned_sid) = self.assigned_shard_id() else {
+                        warn!("received write request from memory bus but no shards are assigned to this node. likely a bug, just ignoring");
+                        continue;
+                    };
+                    self.store_shard((data_id, assigned_sid.clone()), shard);
+                }
             }
         }
     }
@@ -434,9 +564,13 @@ pub struct DistributedDataMemory {
 }
 
 impl DistributedDataMemory {
-    pub fn new(bus: MemoryBus, encoding_settings: reed_solomon::Settings) -> Self {
+    pub fn new(
+        local_id: PeerId,
+        bus: MemoryBus,
+        encoding_settings: reed_solomon::Settings,
+    ) -> Self {
         Self {
-            uninit: UninitializedDataMemory::new(bus, encoding_settings),
+            uninit: UninitializedDataMemory::new(local_id, bus, encoding_settings),
         }
     }
 
