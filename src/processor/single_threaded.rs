@@ -6,6 +6,7 @@ use tokio::{
     join,
     sync::{mpsc, oneshot},
 };
+use tracing::warn;
 
 use crate::{
     encoding::{self},
@@ -53,15 +54,18 @@ pub struct Settings {
 }
 
 struct MemoryBus {
-    data_requester: mpsc::Sender<(Vid, oneshot::Sender<Shard>)>,
-    data_writer: mpsc::Sender<(Vid, Shard)>,
+    reads: mpsc::Sender<(Vid, oneshot::Sender<Option<Shard>>)>,
+    writes: mpsc::Sender<(Vid, Shard)>,
 }
 
 impl MemoryBus {
     // ideally should just request data from local storage; not with currently used math
-    async fn request_local_shard(&self, data_id: Vid) -> Result<oneshot::Receiver<Shard>, Error> {
+    async fn request_local_shard(
+        &self,
+        data_id: Vid,
+    ) -> Result<oneshot::Receiver<Option<Shard>>, Error> {
         let (response_sender, response_reciever) = oneshot::channel();
-        self.data_requester
+        self.reads
             .send((data_id, response_sender))
             .await
             .map_err(|_| Error::DataRequestChannelClosed)?;
@@ -69,14 +73,14 @@ impl MemoryBus {
     }
 
     /// Assemble data necessary to complete the instruction(s)
-    pub async fn retrieve_local_shard(&self, data_id: Vid) -> Result<Shard, Error> {
+    pub async fn retrieve_local_shard(&self, data_id: Vid) -> Result<Option<Shard>, Error> {
         let reciever = self.request_local_shard(data_id).await?;
         reciever.await.map_err(|_| Error::ResponseChannelClosed)
     }
 
     // todo: change to shard when switching encoding
     pub async fn store_local_shard(&self, data_id: Vid, shard: Shard) -> Result<(), Error> {
-        self.data_writer
+        self.writes
             .send((data_id, shard))
             .await
             .map_err(|_| Error::DataWriteChannelClosed)
@@ -124,9 +128,9 @@ impl SimpleProcessor {
         &self,
         operand: Vid,
         operand_context: Option<Shard>,
-    ) -> Result<Shard, Error> {
+    ) -> Result<Option<Shard>, Error> {
         if let Some(o) = operand_context {
-            return Ok(o);
+            return Ok(Some(o));
         }
         self.memory_access.retrieve_local_shard(operand).await
     }
@@ -135,7 +139,7 @@ impl SimpleProcessor {
         &self,
         binary: BinaryOp<Vid>,
         context: &HashMap<Vid, Shard>,
-    ) -> Result<BinaryOp<Shard>, Error> {
+    ) -> Result<Option<BinaryOp<Shard>>, Error> {
         let BinaryOp { first, second } = binary;
         let first_cx = context.get(&first).cloned();
         let second_cx = context.get(&second).cloned();
@@ -143,21 +147,25 @@ impl SimpleProcessor {
             self.retrieve_operand(first, first_cx),
             self.retrieve_operand(second, second_cx)
         );
-        Ok(BinaryOp {
-            first: first?,
-            second: second?,
-        })
+        let operation = if let (Some(first), Some(second)) = (first?, second?) {
+            Some(BinaryOp { first, second })
+        } else {
+            None
+        };
+        Ok(operation)
     }
 
     async fn retrieve_unary(
         &self,
         unary: UnaryOp<Vid>,
         context: &HashMap<Vid, Shard>,
-    ) -> Result<UnaryOp<Shard>, Error> {
+    ) -> Result<Option<UnaryOp<Shard>>, Error> {
         let operand = unary.operand;
         let cx = context.get(&operand);
-        let operand = self.retrieve_operand(operand, cx.cloned()).await?;
-        Ok(UnaryOp { operand })
+        let Some(operand) = self.retrieve_operand(operand, cx.cloned()).await? else {
+            return Ok(None);
+        };
+        Ok(Some(UnaryOp { operand }))
     }
 
     async fn retrieve_operands(
@@ -166,11 +174,21 @@ impl SimpleProcessor {
         context: &HashMap<Vid, Shard>,
     ) -> Result<Operation<Shard>, Error> {
         let retrieved = match op {
-            Operation::Dot(binary) => Operation::Dot(self.retrieve_binary(binary, context).await?),
-            Operation::Plus(binary) => {
-                Operation::Plus(self.retrieve_binary(binary, context).await?)
-            }
-            Operation::Inv(unary) => Operation::Inv(self.retrieve_unary(unary, context).await?),
+            Operation::Dot(binary) => Operation::Dot(
+                self.retrieve_binary(binary, context)
+                    .await?
+                    .ok_or(Error::NoShardsAssigned)?,
+            ),
+            Operation::Plus(binary) => Operation::Plus(
+                self.retrieve_binary(binary, context)
+                    .await?
+                    .ok_or(Error::NoShardsAssigned)?,
+            ),
+            Operation::Inv(unary) => Operation::Inv(
+                self.retrieve_unary(unary, context)
+                    .await?
+                    .ok_or(Error::NoShardsAssigned)?,
+            ),
         };
         Ok(retrieved)
     }
@@ -186,6 +204,8 @@ pub enum Error {
     ResponseChannelClosed,
     #[error(transparent)]
     EncodingError(#[from] encoding::mock::Error),
+    #[error("This peer is not assigned to shards from the operation")]
+    NoShardsAssigned,
 }
 
 #[async_trait]
@@ -211,6 +231,7 @@ impl Processor<Program> for SimpleProcessor {
             let operation = match self.retrieve_operands(operation, &context).await {
                 Ok(o) => o,
                 Err(e) => {
+                    warn!("did not execute operation: {}", e);
                     results.push(Err(e));
                     continue;
                 }
