@@ -552,10 +552,10 @@ impl NetworkBehaviour for Behaviour {
         }
 
         match self.processor.output.poll_recv(cx) {
-            Poll::Ready(Some(single_threaded::OutEvent::FinishedExecution { program_hash, results })) => {
-                debug!("Finished executing program {}\nResults: {:?}", program_hash.clone(), results);
+            Poll::Ready(Some(single_threaded::OutEvent::FinishedExecution { program_id, results })) => {
+                debug!("Finished executing program {:?}\nResults: {:?}", program_id.clone(), results);
                 let send_future = self.consensus.input.send(
-                    consensus::graph::InEvent::ScheduleTx(Transaction::Executed(program_hash))
+                    consensus::graph::InEvent::ScheduleTx(Transaction::Executed(program_id))
                 );
                 pin_mut!(send_future);
                 match send_future.poll(cx) {
@@ -591,7 +591,11 @@ impl NetworkBehaviour for Behaviour {
 
         match self.consensus.output.poll_recv(cx) {
             Poll::Ready(Some(event)) => match event {
-                consensus::graph::OutEvent::FinalizedTransaction { from, tx } => {
+                consensus::graph::OutEvent::FinalizedTransaction {
+                    from,
+                    tx,
+                    event_hash,
+                } => {
                     // handle tx's:
                     // track data locations, pull assigned shards
                     match tx {
@@ -634,11 +638,11 @@ impl NetworkBehaviour for Behaviour {
                                 Poll::Pending => cant_operate_error_return!("`instruction_memory.input` queue is full. continue will skip a transaction, which is unacceptable."),
                             }
                         }
-                        Transaction::Executed(program_hash) => {
+                        Transaction::Executed(program_id) => {
                             let send_future = self.instruction_memory.input.send(
                                 instruction_storage::InEvent::ExecutedProgram {
                                     peer: from,
-                                    program: program_hash,
+                                    program_id,
                                 },
                             );
                             pin_mut!(send_future);

@@ -11,7 +11,7 @@ use types::Shard;
 
 use crate::consensus::graph::GraphWrapper;
 use crate::data_memory::DataMemory;
-use crate::processor::single_threaded::SimpleProcessor;
+use crate::processor::single_threaded::ShardProcessor;
 use crate::types::Vid;
 
 mod behaviour;

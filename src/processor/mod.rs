@@ -30,15 +30,32 @@ where
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub struct Program {
     instructions: Vec<Instruction<Vid, Vid>>,
-    hash: Hash,
+    identifier: ProgramIdentifier,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
+pub struct ProgramIdentifier {
+    pub hash: Hash,
+    pub event_hash: Hash,
 }
 
 impl Program {
-    fn instructions_digest(list: Vec<Instruction<Vid, Vid>>) -> bincode::Result<Vec<u8>> {
-        bincode::serialize(&list)
+    pub fn new(
+        instructions: Vec<Instruction<Vid, Vid>>,
+        event_hash: Hash,
+    ) -> bincode::Result<Self> {
+        let hash = Self::calculate_hash(&instructions)?;
+        Ok(Self {
+            instructions,
+            identifier: ProgramIdentifier { hash, event_hash },
+        })
     }
 
-    fn calculate_hash(value: Vec<Instruction<Vid, Vid>>) -> bincode::Result<Hash> {
+    fn instructions_digest(list: &Vec<Instruction<Vid, Vid>>) -> bincode::Result<Vec<u8>> {
+        bincode::serialize(list)
+    }
+
+    fn calculate_hash(value: &Vec<Instruction<Vid, Vid>>) -> bincode::Result<Hash> {
         let mut hasher = Blake2b512::new();
         hasher.update(Self::instructions_digest(value)?);
         Ok(Hash::from_array(hasher.finalize().try_into().expect(
@@ -50,14 +67,8 @@ impl Program {
         &self.instructions
     }
 
-    pub fn hash(&self) -> &Hash {
-        &self.hash
-    }
-}
-
-impl From<Vec<Instruction<Vid, Vid>>> for Program {
-    fn from(value: Vec<Instruction<Vid, Vid>>) -> Self {
-        todo!()
+    pub fn identifier(&self) -> &ProgramIdentifier {
+        &self.identifier
     }
 }
 

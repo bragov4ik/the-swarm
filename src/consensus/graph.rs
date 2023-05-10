@@ -3,13 +3,12 @@ use std::task::Poll;
 use std::{fmt::Debug, sync::Arc};
 
 use futures::Stream;
-use futures::{pin_mut, Future, StreamExt};
+use futures::{Future, StreamExt};
 use libp2p::PeerId;
 use pin_project_lite::pin_project;
-use rust_hashgraph::algorithm::{
-    datastructure::{self, EventCreateError, Graph},
-    PushError,
-};
+use rust_hashgraph::algorithm::datastructure::{self, EventCreateError, Graph};
+use rust_hashgraph::algorithm::event::Hash;
+use rust_hashgraph::algorithm::PushError;
 use rust_hashgraph::algorithm::{Clock, Signer};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -20,7 +19,7 @@ use tracing::{error, info, warn};
 use crate::behaviour::ModuleChannelServer;
 use crate::types::{GraphSync, Sid, Vid};
 
-use super::{GraphConsensus, Transaction};
+use super::Transaction;
 
 pub struct Module;
 
@@ -33,6 +32,7 @@ impl crate::Module for Module {
 pub enum OutEvent {
     FinalizedTransaction {
         from: PeerId,
+        event_hash: Hash,
         tx: Transaction<Vid, Sid, PeerId>,
     },
     SyncReady {
@@ -62,7 +62,7 @@ pin_project! {
         inner: Graph<EventPayload<TDataId, TShardId>, PeerId, TSigner, TClock>,
         state_updated: Arc<Notify>,
         included_transaction_buffer: Vec<Transaction<TDataId, TShardId, PeerId>>,
-        retrieved_transaction_buffer: (PeerId, VecDeque<Transaction<TDataId, TShardId, PeerId>>),
+        retrieved_transaction_buffer: (PeerId, VecDeque<Transaction<TDataId, TShardId, PeerId>>, Hash),
     }
 }
 
@@ -79,7 +79,11 @@ impl<TDataId, TShardId, TSigner, TClock> GraphWrapper<TDataId, TShardId, TSigner
             inner: graph,
             state_updated: Arc::new(Notify::new()),
             included_transaction_buffer: Vec::new(),
-            retrieved_transaction_buffer: (PeerId::random(), VecDeque::new()),
+            retrieved_transaction_buffer: (
+                PeerId::random(),
+                VecDeque::new(),
+                Hash::from_array([0; 64]),
+            ),
         }
     }
 
@@ -156,7 +160,7 @@ where
     TSigner: Signer<SignerIdentity = PeerId>,
     TClock: Clock,
 {
-    type Item = (PeerId, Transaction<TDataId, TShardId, PeerId>);
+    type Item = (PeerId, Transaction<TDataId, TShardId, PeerId>, Hash);
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
@@ -172,7 +176,11 @@ where
         loop {
             if let Some(tx) = this.retrieved_transaction_buffer.1.pop_front() {
                 // feed transactions from an event one by one
-                return Poll::Ready(Some((this.retrieved_transaction_buffer.0, tx)));
+                return Poll::Ready(Some((
+                    this.retrieved_transaction_buffer.0,
+                    tx,
+                    this.retrieved_transaction_buffer.2.clone(),
+                )));
             } else {
                 // no txs left in previous event, getting a new one
                 match this.inner.next_event() {
@@ -183,7 +191,9 @@ where
                         this.retrieved_transaction_buffer.0 = author;
                         this.retrieved_transaction_buffer.1 = txs;
                         match next_tx {
-                            Some(tx) => return Poll::Ready(Some((author, tx))),
+                            Some(tx) => {
+                                return Poll::Ready(Some((author, tx, event.signature().clone())))
+                            }
                             None => {
                                 // more events might be available
                                 continue;
@@ -206,11 +216,11 @@ where
         loop {
             tokio::select! {
                 result = self.next() => {
-                    let Some((from, tx)) = result else {
+                    let Some((from, tx, event_hash)) = result else {
                         info!("stream of events ended, shuttung down consensus");
                         return;
                     };
-                    if let Err(_) = connection.output.send(OutEvent::FinalizedTransaction { from, tx }).await {
+                    if let Err(_) = connection.output.send(OutEvent::FinalizedTransaction { from, tx, event_hash }).await {
                         info!("`connection.output` is closed, shuttung down consensus");
                         return;
                     }

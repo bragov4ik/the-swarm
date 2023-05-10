@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use async_trait::async_trait;
 use thiserror::Error;
 use tokio::{
     join,
@@ -9,11 +8,12 @@ use tokio::{
 use tracing::warn;
 
 use crate::{
+    behaviour::ModuleChannelServer,
     encoding::{self},
-    types::{Data, Hash, Shard, Sid, Vid},
+    types::{Shard, Vid},
 };
 
-use super::{instruction::Instruction, BinaryOp, Operation, Processor, Program, UnaryOp};
+use super::{instruction::Instruction, BinaryOp, Operation, Program, ProgramIdentifier, UnaryOp};
 
 pub struct Module;
 
@@ -25,7 +25,7 @@ impl crate::Module for Module {
 
 pub enum OutEvent {
     FinishedExecution {
-        program_hash: Hash,
+        program_id: ProgramIdentifier,
         results: Vec<Result<Vid, Error>>,
     },
 }
@@ -87,7 +87,7 @@ impl MemoryBus {
     }
 }
 
-pub struct SimpleProcessor {
+pub struct ShardProcessor {
     memory_access: MemoryBus,
 }
 fn map_zip<T, const N: usize, F>(a: &[T; N], b: &[T; N], f: F) -> [T; N]
@@ -102,7 +102,7 @@ where
     result
 }
 
-impl SimpleProcessor {
+impl ShardProcessor {
     fn calculate(operation: &Operation<Shard>) -> Shard {
         match operation {
             Operation::Dot(operation) => map_zip(
@@ -208,19 +208,8 @@ pub enum Error {
     NoShardsAssigned,
 }
 
-#[async_trait]
-impl Processor<Program> for SimpleProcessor {
-    type Error = Error;
-    type Operand = Vid;
-    type Result = Vid;
-
-    async fn execute_one(
-        &self,
-        ins: Instruction<Self::Operand, Self::Result>,
-    ) -> Result<Self::Operand, Self::Error> {
-        self.execute(vec![ins].into()).await.remove(0)
-    }
-    async fn execute(&self, program: Program) -> Vec<Result<Self::Operand, Self::Error>> {
+impl ShardProcessor {
+    async fn execute(&self, program: Program) -> Vec<Result<Vid, Error>> {
         let mut context = HashMap::new();
         let mut results = Vec::with_capacity(program.instructions().len());
         for instruction in program {
@@ -250,4 +239,8 @@ impl Processor<Program> for SimpleProcessor {
         }
         results
     }
+}
+
+impl ShardProcessor {
+    pub async fn run(mut self, mut connection: ModuleChannelServer<Module>) {}
 }

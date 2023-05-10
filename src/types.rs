@@ -84,3 +84,15 @@ impl Hash {
         return Hash { inner };
     }
 }
+
+impl From<rust_hashgraph::algorithm::event::Hash> for Hash {
+    fn from(value: rust_hashgraph::algorithm::event::Hash) -> Self {
+        Self::from_array(value.into_array())
+    }
+}
+
+impl Into<rust_hashgraph::algorithm::event::Hash> for Hash {
+    fn into(self) -> rust_hashgraph::algorithm::event::Hash {
+        rust_hashgraph::algorithm::event::Hash::from_array(self.into_array())
+    }
+}

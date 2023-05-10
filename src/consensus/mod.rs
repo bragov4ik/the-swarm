@@ -34,7 +34,7 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 
-use crate::processor::Program;
+use crate::processor::{Program, ProgramIdentifier};
 use crate::types::Hash;
 
 pub mod graph;
@@ -98,5 +98,5 @@ pub enum Transaction<TDataId, TShardId, TPeerId> {
     /// Program is queued for execution by the author
     Execute(Program),
     /// Program was fully executed by this peer
-    Executed(Hash),
+    Executed(ProgramIdentifier),
 }

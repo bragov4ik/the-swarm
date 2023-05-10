@@ -1,12 +1,10 @@
 use std::collections::{hash_map, HashMap, HashSet};
 
-use futures::Stream;
 use libp2p::PeerId;
 use tracing::{debug, error, info, warn};
 
 use crate::behaviour::ModuleChannelServer;
-use crate::processor::Program;
-use crate::types::Hash;
+use crate::processor::{Program, ProgramIdentifier};
 
 mod traits;
 
@@ -22,26 +20,28 @@ pub enum OutEvent {
     /// Next program for execution is available.
     NextProgram(Program),
     /// Enough peers completed the program; we can safely consider it completed.
-    FinishedExecution(Hash),
+    FinishedExecution(ProgramIdentifier),
 }
 
 pub enum InEvent {
     /// New program has been finalized
     FinalizedProgram(Program),
     /// Track completion of programs (`k` found - success)
-    ExecutedProgram { peer: PeerId, program: Hash },
+    ExecutedProgram {
+        peer: PeerId,
+        program_id: ProgramIdentifier,
+    },
 }
 
 /// Async data memory/data manager. Intended to communicate
 /// with behaviour through corresponding [`ModuleChannelServer`] (the
 /// behaviour thus uses [`ModuleChannelClient`]).
 ///
-/// Tracks locations of data shards, stores shards assigned to this peer,
-/// and manages initial distribution (serving) with rebuilding of data.
+/// Stores scheduled programs and tracks their execution
 ///
 /// Use [`Self::run()`] to operate.
 struct InstructionMemory {
-    currently_executed: HashMap<Hash, ExecutionState>,
+    currently_executed: HashMap<ProgramIdentifier, ExecutionState>,
     accept_threshold: usize,
 }
 
@@ -55,7 +55,7 @@ impl InstructionMemory {
 
     /// Returns `true` if this notification resulted in `Finished`
     /// execution state.
-    fn notify_executed(&mut self, who: PeerId, program: Hash) -> bool {
+    fn notify_executed(&mut self, who: PeerId, program: ProgramIdentifier) -> bool {
         let entry = self.currently_executed.entry(program.clone());
         if let hash_map::Entry::Vacant(_) = &entry {
             // todo: might be abused to create more and more HashSets.
@@ -73,7 +73,7 @@ impl InstructionMemory {
                 peers_finished.insert(who);
                 if peers_finished.len() >= self.accept_threshold {
                     debug!(
-                        "Program {} is finished by {} peers. It is enough for us.",
+                        "Program {:?} is finished by {} peers. It is enough for us.",
                         program,
                         peers_finished.len()
                     );
@@ -88,7 +88,7 @@ impl InstructionMemory {
         }
     }
 
-    fn notify_finalized(&mut self, program: Hash) {
+    fn notify_finalized(&mut self, program: ProgramIdentifier) {
         match self.currently_executed.entry(program) {
             hash_map::Entry::Occupied(_) => warn!(
                 "Finalized program is already known \
@@ -126,20 +126,22 @@ impl InstructionMemory {
                     };
                     match in_event {
                         InEvent::FinalizedProgram(program) => {
-                            self.notify_finalized(program.hash().clone());
-                            if let Err(_) = connection.output.send(OutEvent::NextProgram(program)).await {
+                            self.notify_finalized(program.identifier().clone());
+                            if let Err(_) = connection.output.send(
+                                OutEvent::NextProgram(program)
+                            ).await {
                                 error!("`connection.output` is closed, shuttung down instruction memory");
                                 return;
                             }
                         },
-                        InEvent::ExecutedProgram { peer, program } => {
-                            let notify = self.notify_executed(peer, program.clone());
-                            if notify {
-                                if let Err(_) = connection.output.send(OutEvent::FinishedExecution(program)).await {
+                        InEvent::ExecutedProgram { peer, program_id } => {
+                            if self.notify_executed(peer, program_id.clone()) {
+                                if let Err(_) = connection.output.send(
+                                    OutEvent::FinishedExecution(program_id)
+                                ).await {
                                     error!("`connection.output` is closed, shuttung down instruction memory");
                                     return;
                                 }
-
                             }
                         },
                     }
