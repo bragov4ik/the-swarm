@@ -29,7 +29,10 @@ use crate::{
     data_memory::distributed_simple,
     handler::{self, Connection, ConnectionReceived},
     instruction_storage,
-    processor::single_threaded::{self},
+    processor::{
+        single_threaded::{self},
+        Program,
+    },
     protocol, Module, State,
 };
 
@@ -49,7 +52,7 @@ mod module {
     use libp2p::PeerId;
 
     use crate::{
-        processor::Program,
+        processor::{Instructions, Program},
         types::{Data, Sid, Vid},
     };
 
@@ -63,7 +66,7 @@ mod module {
 
     pub enum InEvent {
         // schedule program, collect data, distribute data
-        ScheduleProgram(Program),
+        ScheduleProgram(Instructions),
         Get(Vid),
         Put(Vid, Data),
         ListStored,
@@ -493,9 +496,9 @@ impl NetworkBehaviour for Behaviour {
         // TODO: check if futures::select! is applicable to avoid starvation (??)
         match self.user_interaction.input.poll_recv(cx) {
             Poll::Ready(Some(event)) => match event {
-                module::InEvent::ScheduleProgram(program) => {
+                module::InEvent::ScheduleProgram(instructions) => {
                     let send_future = self.consensus.input.send(
-                        consensus::graph::InEvent::ScheduleTx(Transaction::Execute(program))
+                        consensus::graph::InEvent::ScheduleTx(Transaction::Execute(instructions))
                     );
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
@@ -626,7 +629,14 @@ impl NetworkBehaviour for Behaviour {
                                 Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will lose track of stored shards."),
                             }
                         }
-                        Transaction::Execute(program) => {
+                        Transaction::Execute(instructions) => {
+                            let program = match Program::new(instructions, event_hash.into()) {
+                                Ok(p) => p,
+                                Err(e) => cant_operate_error_return!(
+                                    "could not compute hash of a program: {}",
+                                    e
+                                ),
+                            };
                             let send_future = self
                                 .instruction_memory
                                 .input

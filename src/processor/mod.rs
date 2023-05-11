@@ -29,9 +29,11 @@ where
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub struct Program {
-    instructions: Vec<Instruction<Vid, Vid>>,
+    instructions: Instructions,
     identifier: ProgramIdentifier,
 }
+
+pub type Instructions = Vec<Instruction<Vid, Vid>>;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub struct ProgramIdentifier {
@@ -40,10 +42,7 @@ pub struct ProgramIdentifier {
 }
 
 impl Program {
-    pub fn new(
-        instructions: Vec<Instruction<Vid, Vid>>,
-        event_hash: Hash,
-    ) -> bincode::Result<Self> {
+    pub fn new(instructions: Instructions, event_hash: Hash) -> bincode::Result<Self> {
         let hash = Self::calculate_hash(&instructions)?;
         Ok(Self {
             instructions,
@@ -51,11 +50,11 @@ impl Program {
         })
     }
 
-    fn instructions_digest(list: &Vec<Instruction<Vid, Vid>>) -> bincode::Result<Vec<u8>> {
+    fn instructions_digest(list: &Instructions) -> bincode::Result<Vec<u8>> {
         bincode::serialize(list)
     }
 
-    fn calculate_hash(value: &Vec<Instruction<Vid, Vid>>) -> bincode::Result<Hash> {
+    fn calculate_hash(value: &Instructions) -> bincode::Result<Hash> {
         let mut hasher = Blake2b512::new();
         hasher.update(Self::instructions_digest(value)?);
         Ok(Hash::from_array(hasher.finalize().try_into().expect(
@@ -63,7 +62,7 @@ impl Program {
         )))
     }
 
-    pub fn instructions(&self) -> &Vec<Instruction<Vid, Vid>> {
+    pub fn instructions(&self) -> &Instructions {
         &self.instructions
     }
 
@@ -71,7 +70,7 @@ impl Program {
         &self.identifier
     }
 
-    pub fn into_parts(self) -> (Vec<Instruction<Vid, Vid>>, ProgramIdentifier) {
+    pub fn into_parts(self) -> (Instructions, ProgramIdentifier) {
         (self.instructions, self.identifier)
     }
 }
@@ -79,7 +78,7 @@ impl Program {
 impl IntoIterator for Program {
     type Item = Instruction<Vid, Vid>;
 
-    type IntoIter = <Vec<Instruction<Vid, Vid>> as IntoIterator>::IntoIter;
+    type IntoIter = <Instructions as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
         self.instructions.into_iter()

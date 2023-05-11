@@ -13,7 +13,10 @@ use crate::{
     types::{Shard, Vid},
 };
 
-use super::{instruction::Instruction, BinaryOp, Operation, Program, ProgramIdentifier, UnaryOp};
+use super::{
+    instruction::Instruction, BinaryOp, Instructions, Operation, Program, ProgramIdentifier,
+    UnaryOp,
+};
 
 pub struct Module;
 
@@ -209,7 +212,7 @@ pub enum Error {
 }
 
 impl ShardProcessor {
-    async fn execute(&self, program: Vec<Instruction<Vid, Vid>>) -> Vec<Result<Vid, Error>> {
+    async fn execute(&self, program: Instructions) -> Vec<Result<Vid, Error>> {
         let mut context = HashMap::new();
         let mut results = Vec::with_capacity(program.len());
         for instruction in program {

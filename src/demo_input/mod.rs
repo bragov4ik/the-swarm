@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 use std::{error::Error, fmt::Display, path::Path};
 
 use crate::{
-    processor::Instruction,
+    processor::{Instruction, Instructions},
     types::{Shard, Vid},
 };
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct InputData {
     pub data_layout: Vec<(Vid, Shard)>,
-    pub instructions: Vec<Instruction<Vid, Vid>>,
+    pub instructions: Instructions,
 }
 
 #[derive(Debug)]

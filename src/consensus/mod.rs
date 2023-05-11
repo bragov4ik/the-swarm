@@ -34,7 +34,7 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 
-use crate::processor::{Program, ProgramIdentifier};
+use crate::processor::{Instructions, ProgramIdentifier};
 
 pub mod graph;
 // pub mod mock;
@@ -95,7 +95,7 @@ pub enum Transaction<TDataId, TShardId, TPeerId> {
     /// Indicates that specified shard (data) of operand is stored somewhere
     Stored(TDataId, TShardId),
     /// Program is queued for execution by the author
-    Execute(Program),
+    Execute(Instructions),
     /// Program was fully executed by this peer
     Executed(ProgramIdentifier),
 }
