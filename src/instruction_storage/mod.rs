@@ -1,7 +1,7 @@
 use std::collections::{hash_map, HashMap, HashSet};
 
 use libp2p::PeerId;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::behaviour::ModuleChannelServer;
 use crate::processor::{Program, ProgramIdentifier};
@@ -116,7 +116,7 @@ impl Default for ExecutionState {
 }
 
 impl InstructionMemory {
-    async fn run(mut self, mut connection: ModuleChannelServer<Module>) {
+    pub async fn run(mut self, mut connection: ModuleChannelServer<Module>) {
         loop {
             tokio::select! {
                 in_event = connection.input.recv() => {

@@ -1,6 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use libp2p::PeerId;
 use thiserror::Error;
 
 use crate::types::{Data, Shard, Sid};

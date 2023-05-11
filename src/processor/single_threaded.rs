@@ -5,7 +5,7 @@ use tokio::{
     join,
     sync::{mpsc, oneshot},
 };
-use tracing::warn;
+use tracing::{error, warn};
 
 use crate::{
     behaviour::ModuleChannelServer,
@@ -209,9 +209,9 @@ pub enum Error {
 }
 
 impl ShardProcessor {
-    async fn execute(&self, program: Program) -> Vec<Result<Vid, Error>> {
+    async fn execute(&self, program: Vec<Instruction<Vid, Vid>>) -> Vec<Result<Vid, Error>> {
         let mut context = HashMap::new();
-        let mut results = Vec::with_capacity(program.instructions().len());
+        let mut results = Vec::with_capacity(program.len());
         for instruction in program {
             let Instruction {
                 operation,
@@ -242,5 +242,28 @@ impl ShardProcessor {
 }
 
 impl ShardProcessor {
-    pub async fn run(mut self, mut connection: ModuleChannelServer<Module>) {}
+    pub async fn run(self, mut connection: ModuleChannelServer<Module>) {
+        loop {
+            tokio::select! {
+                in_event = connection.input.recv() => {
+                    let Some(in_event) = in_event else {
+                        error!("`connection.output` is closed, shuttung down instruction memory");
+                        return;
+                    };
+                    match in_event {
+                        InEvent::Execute(program) => {
+                            let (instructions, program_id) = program.into_parts();
+                            let results = self.execute(instructions).await;
+                            if let Err(_) = connection.output.send(
+                                OutEvent::FinishedExecution { program_id, results }
+                            ).await {
+                                error!("`connection.output` is closed, shuttung down processor");
+                                return;
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    }
 }

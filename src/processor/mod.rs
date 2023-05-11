@@ -70,6 +70,10 @@ impl Program {
     pub fn identifier(&self) -> &ProgramIdentifier {
         &self.identifier
     }
+
+    pub fn into_parts(self) -> (Vec<Instruction<Vid, Vid>>, ProgramIdentifier) {
+        (self.instructions, self.identifier)
+    }
 }
 
 impl IntoIterator for Program {

@@ -35,7 +35,6 @@ use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
 
 use crate::processor::{Program, ProgramIdentifier};
-use crate::types::Hash;
 
 pub mod graph;
 // pub mod mock;

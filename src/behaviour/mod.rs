@@ -22,7 +22,7 @@ use tokio::{
     sync::{mpsc, Notify},
     time::{sleep, Sleep},
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::{
     consensus::{self, Transaction},
