@@ -52,7 +52,7 @@ mod module {
     use libp2p::PeerId;
 
     use crate::{
-        processor::{Instructions, Program},
+        processor::Instructions,
         types::{Data, Sid, Vid},
     };
 
@@ -99,10 +99,36 @@ pub struct ModuleChannelServer<M: Module> {
     state: Option<Arc<Mutex<M::SharedState>>>,
 }
 
+/// Created with [`ModuleChannelServer::new()`]
 pub struct ModuleChannelClient<M: Module> {
     input: mpsc::Sender<M::InEvent>,
     output: mpsc::Receiver<M::OutEvent>,
     state: Option<Arc<Mutex<M::SharedState>>>,
+}
+
+impl<M> ModuleChannelServer<M>
+where
+    M: Module,
+{
+    pub fn new(
+        initial_state: Option<M::SharedState>,
+        buffer: usize,
+    ) -> (ModuleChannelServer<M>, ModuleChannelClient<M>) {
+        let (input_send, input_recv) = mpsc::channel(buffer);
+        let (output_send, output_recv) = mpsc::channel(buffer);
+        let state_shared = initial_state.map(|init| Arc::new(Mutex::new(init)));
+        let server = ModuleChannelServer {
+            input: input_recv,
+            output: output_send,
+            state: state_shared.clone(),
+        };
+        let client = ModuleChannelClient {
+            input: input_send,
+            output: output_recv,
+            state: state_shared,
+        };
+        (server, client)
+    }
 }
 
 impl<M: Module> ModuleChannelClient<M> {
@@ -122,7 +148,7 @@ struct Behaviour {
 
     user_interaction: ModuleChannelServer<module::Module>,
     // connections to other system components (run as separate async tasks)
-    // todo: do some wrapper that'll check for timeouts and stuff. maybe match request-response
+    // todo: do some wrapper that'll check for timeouts and stuff. maybe also match request-response
     consensus: ModuleChannelClient<consensus::graph::Module>,
     instruction_memory: ModuleChannelClient<instruction_storage::Module>,
     data_memory: ModuleChannelClient<distributed_simple::Module>,
@@ -148,6 +174,36 @@ struct Behaviour {
 
     // notification to poll() to wake up and try to do some progress
     state_updated: Arc<Notify>,
+}
+
+impl Behaviour {
+    pub fn new(
+        local_peer_id: PeerId,
+        consensus_gossip_timeout: Duration,
+        user_interaction: ModuleChannelServer<module::Module>,
+        consensus: ModuleChannelClient<consensus::graph::Module>,
+        instruction_memory: ModuleChannelClient<instruction_storage::Module>,
+        data_memory: ModuleChannelClient<distributed_simple::Module>,
+        processor: ModuleChannelClient<single_threaded::Module>,
+    ) -> Self {
+        Self {
+            local_peer_id,
+            user_interaction,
+            consensus,
+            instruction_memory,
+            data_memory,
+            processor,
+            connected_peers: HashSet::new(),
+            rng: rand::thread_rng(),
+            consensus_gossip_timer: Box::pin(sleep(consensus_gossip_timeout)),
+            consensus_gossip_timeout,
+            connection_events: VecDeque::new(),
+            connection_errors: VecDeque::new(),
+            currently_processed_requests: HashMap::new(),
+            to_notify: Vec::new(),
+            state_updated: Arc::new(Notify::new()),
+        }
+    }
 }
 
 impl Behaviour {
@@ -195,7 +251,7 @@ impl NetworkBehaviour for Behaviour {
                     return;
                 }
                 if !self.connected_peers.insert(peer_id) {
-                    warn!("Newly connecting peer was already in connected list, data is inconsistent.");
+                    warn!("Newly connecting peer was already in connected list, data is inconsistent (?).");
                 }
             }
             FromSwarm::ConnectionClosed(ConnectionClosed {
@@ -209,7 +265,7 @@ impl NetworkBehaviour for Behaviour {
                     return;
                 }
                 if !self.connected_peers.remove(&peer_id) {
-                    warn!("Disconnecting peer wasn't in connected list, data is inconsistent.");
+                    warn!("Disconnecting peer wasn't in connected list, data is inconsistent (?).");
                 }
             }
             FromSwarm::AddressChange(_)

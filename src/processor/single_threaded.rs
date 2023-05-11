@@ -56,7 +56,7 @@ pub struct Settings {
     pub data_shards_sufficient: u64,
 }
 
-struct MemoryBus {
+pub struct MemoryBus {
     reads: mpsc::Sender<(Vid, oneshot::Sender<Option<Shard>>)>,
     writes: mpsc::Sender<(Vid, Shard)>,
 }
@@ -93,6 +93,7 @@ impl MemoryBus {
 pub struct ShardProcessor {
     memory_access: MemoryBus,
 }
+
 fn map_zip<T, const N: usize, F>(a: &[T; N], b: &[T; N], f: F) -> [T; N]
 where
     T: Clone,
@@ -245,6 +246,10 @@ impl ShardProcessor {
 }
 
 impl ShardProcessor {
+    pub fn new(bus: MemoryBus) -> Self {
+        Self { memory_access: bus }
+    }
+
     pub async fn run(self, mut connection: ModuleChannelServer<Module>) {
         loop {
             tokio::select! {

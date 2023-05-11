@@ -51,6 +51,11 @@ pub enum InEvent {
 pub type SyncJobs<TDataId, TShardId> =
     datastructure::sync::Jobs<EventPayload<TDataId, TShardId>, PeerId>;
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
+pub struct EventPayload<TDataId, TShardId> {
+    transactions: Vec<Transaction<TDataId, TShardId, PeerId>>,
+}
+
 pin_project! {
     /// Async wrapper for the graph consensus. Intended to communicate
     /// with behaviour through corresponding [`ModuleChannelServer`] (the
@@ -65,12 +70,6 @@ pin_project! {
         retrieved_transaction_buffer: (PeerId, VecDeque<Transaction<TDataId, TShardId, PeerId>>, Hash),
     }
 }
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
-pub struct EventPayload<TDataId, TShardId> {
-    transactions: Vec<Transaction<TDataId, TShardId, PeerId>>,
-}
-
 impl<TDataId, TShardId, TSigner, TClock> GraphWrapper<TDataId, TShardId, TSigner, TClock> {
     pub fn from_graph(
         graph: Graph<EventPayload<TDataId, TShardId>, PeerId, TSigner, TClock>,

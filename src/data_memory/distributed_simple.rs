@@ -115,7 +115,13 @@ pub enum InEvent {
     RecollectRequest(Vid),
 }
 
-pub struct UninitializedDataMemory {
+pub struct MemoryBus {
+    reads: mpsc::Receiver<(Vid, oneshot::Sender<Option<Shard>>)>,
+    /// Store new value of the assigned shard
+    writes: mpsc::Receiver<(Vid, Shard)>,
+}
+
+struct UninitializedDataMemory {
     bus: MemoryBus,
     encoding: ReedSolomonWrapper,
     local_id: PeerId,
@@ -243,25 +249,6 @@ struct InitializedDataMemory {
     local_id: PeerId,
     bus: MemoryBus,
     encoding: ReedSolomonWrapper,
-}
-
-pub enum MemoryBusDataRequest {
-    /// Gather shards, rebuild, and provide full data
-    Assemble {
-        data_id: Vid,
-        response_handle: oneshot::Sender<Data>,
-    },
-    /// Only pass locally stored shard(-s?)
-    AssignedShard {
-        data_id: Vid,
-        response_handle: oneshot::Sender<Shard>,
-    },
-}
-
-pub struct MemoryBus {
-    reads: mpsc::Receiver<(Vid, oneshot::Sender<Option<Shard>>)>,
-    /// Store new value of the assigned shard
-    writes: mpsc::Receiver<(Vid, Shard)>,
 }
 
 impl InitializedDataMemory {
@@ -559,6 +546,8 @@ impl InitializedDataMemory {
     }
 }
 
+/// Data memory that first waits for initialization
+/// event and then starts operating normally
 pub struct DistributedDataMemory {
     uninit: UninitializedDataMemory,
 }
