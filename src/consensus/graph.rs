@@ -16,7 +16,7 @@ use tokio::pin;
 use tokio::sync::Notify;
 use tracing::{error, info, warn};
 
-use crate::behaviour::ModuleChannelServer;
+use crate::module::ModuleChannelServer;
 use crate::signatures::EncodedEd25519Pubkey;
 use crate::types::{GraphSync, Sid, Vid};
 
@@ -24,7 +24,7 @@ use super::Transaction;
 
 pub struct Module;
 
-impl crate::Module for Module {
+impl crate::module::Module for Module {
     type InEvent = InEvent;
     type OutEvent = OutEvent;
     type SharedState = ();
@@ -225,7 +225,7 @@ where
     TSigner: Signer<GenesisPayload, SignerIdentity = PeerId>,
     TClock: Clock,
 {
-    async fn run(mut self, mut connection: ModuleChannelServer<Module>) {
+    pub async fn run(mut self, mut connection: ModuleChannelServer<Module>) {
         loop {
             tokio::select! {
                 result = self.next() => {

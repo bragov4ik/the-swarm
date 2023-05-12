@@ -3,14 +3,14 @@ use std::collections::{hash_map, HashMap, HashSet};
 use libp2p::PeerId;
 use tracing::{debug, error, warn};
 
-use crate::behaviour::ModuleChannelServer;
+use crate::module::ModuleChannelServer;
 use crate::processor::{Program, ProgramIdentifier};
 
 mod traits;
 
 pub struct Module;
 
-impl crate::Module for Module {
+impl crate::module::Module for Module {
     type InEvent = InEvent;
     type OutEvent = OutEvent;
     type SharedState = ();
@@ -40,13 +40,13 @@ pub enum InEvent {
 /// Stores scheduled programs and tracks their execution
 ///
 /// Use [`Self::run()`] to operate.
-struct InstructionMemory {
+pub struct InstructionMemory {
     currently_executed: HashMap<ProgramIdentifier, ExecutionState>,
     accept_threshold: usize,
 }
 
 impl InstructionMemory {
-    fn new(execution_confirmations_threshold: usize) -> Self {
+    pub fn new(execution_confirmations_threshold: usize) -> Self {
         Self {
             currently_executed: HashMap::new(),
             accept_threshold: execution_confirmations_threshold,

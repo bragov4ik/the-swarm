@@ -24,6 +24,7 @@ use tokio::{
 };
 use tracing::{debug, error, trace, warn};
 
+use crate::module::{Module, ModuleChannelClient, ModuleChannelServer, State};
 use crate::{
     consensus::{self, Transaction},
     data_memory::distributed_simple,
@@ -33,11 +34,12 @@ use crate::{
         single_threaded::{self},
         Program,
     },
-    protocol, Module, State,
+    protocol,
 };
 
 pub type OutEvent = Result<Event, Error>;
 
+#[derive(Error, Debug)]
 pub enum Event {}
 
 #[derive(Error, Debug)]
@@ -58,7 +60,7 @@ mod module {
 
     pub struct Module;
 
-    impl crate::Module for Module {
+    impl crate::module::Module for Module {
         type InEvent = InEvent;
         type OutEvent = OutEvent;
         type SharedState = ();
@@ -93,57 +95,7 @@ struct ConnectionError {
     error: crate::handler::ConnectionError,
 }
 
-pub struct ModuleChannelServer<M: Module> {
-    pub input: mpsc::Receiver<M::InEvent>,
-    pub output: mpsc::Sender<M::OutEvent>,
-    state: Option<Arc<Mutex<M::SharedState>>>,
-}
-
-/// Created with [`ModuleChannelServer::new()`]
-pub struct ModuleChannelClient<M: Module> {
-    input: mpsc::Sender<M::InEvent>,
-    output: mpsc::Receiver<M::OutEvent>,
-    state: Option<Arc<Mutex<M::SharedState>>>,
-}
-
-impl<M> ModuleChannelServer<M>
-where
-    M: Module,
-{
-    pub fn new(
-        initial_state: Option<M::SharedState>,
-        buffer: usize,
-    ) -> (ModuleChannelServer<M>, ModuleChannelClient<M>) {
-        let (input_send, input_recv) = mpsc::channel(buffer);
-        let (output_send, output_recv) = mpsc::channel(buffer);
-        let state_shared = initial_state.map(|init| Arc::new(Mutex::new(init)));
-        let server = ModuleChannelServer {
-            input: input_recv,
-            output: output_send,
-            state: state_shared.clone(),
-        };
-        let client = ModuleChannelClient {
-            input: input_send,
-            output: output_recv,
-            state: state_shared,
-        };
-        (server, client)
-    }
-}
-
-impl<M: Module> ModuleChannelClient<M> {
-    fn accepts_input(&self) -> bool {
-        let Some(state) = &self.state else {
-            return true
-        };
-        let Ok(state) = state.try_lock() else {
-            return false;
-        };
-        state.accepts_input()
-    }
-}
-
-struct Behaviour {
+pub struct Behaviour {
     local_peer_id: PeerId,
 
     user_interaction: ModuleChannelServer<module::Module>,

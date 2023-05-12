@@ -7,8 +7,8 @@ use tokio::{
 };
 use tracing::{error, warn};
 
+use crate::module::ModuleChannelServer;
 use crate::{
-    behaviour::ModuleChannelServer,
     encoding::{self},
     types::{Shard, Vid},
 };
@@ -20,7 +20,7 @@ use super::{
 
 pub struct Module;
 
-impl crate::Module for Module {
+impl crate::module::Module for Module {
     type InEvent = InEvent;
     type OutEvent = OutEvent;
     type SharedState = ModuleState;
@@ -42,7 +42,7 @@ pub enum ModuleState {
     Executing,
 }
 
-impl crate::State for ModuleState {
+impl crate::module::State for ModuleState {
     fn accepts_input(&self) -> bool {
         match self {
             ModuleState::Ready => true,
@@ -59,6 +59,19 @@ pub struct Settings {
 pub struct MemoryBus {
     reads: mpsc::Sender<(Vid, oneshot::Sender<Option<Shard>>)>,
     writes: mpsc::Sender<(Vid, Shard)>,
+}
+
+impl MemoryBus {
+    pub fn new(
+        reads: mpsc::Sender<(Vid, oneshot::Sender<Option<Shard>>)>,
+        writes: mpsc::Sender<(Vid, Shard)>,
+    ) -> Self {
+        Self { reads, writes }
+    }
+
+    pub fn channel(buffer: usize) -> (crate::data_memory::distributed_simple::MemoryBus, Self) {
+        crate::data_memory::distributed_simple::MemoryBus::channel(buffer)
+    }
 }
 
 impl MemoryBus {

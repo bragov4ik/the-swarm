@@ -6,14 +6,19 @@ use libp2p::swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent};
 use libp2p::{identity, Multiaddr, PeerId};
 use rand::RngCore;
 use rust_hashgraph::algorithm::datastructure::Graph;
+use signatures::Ed25519Signer;
 use std::error::Error;
 use std::time::Duration;
 use tokio::io::{self, AsyncBufReadExt};
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
 use types::Shard;
 
 use crate::consensus::graph::{EventPayload, GraphWrapper};
+use crate::data_memory::distributed_simple::{DistributedDataMemory, MemoryBus};
 use crate::data_memory::DataMemory;
+use crate::instruction_storage::InstructionMemory;
+use crate::module::ModuleChannelServer;
 use crate::processor::single_threaded::ShardProcessor;
 use crate::types::{Sid, Vid};
 
@@ -24,10 +29,18 @@ mod demo_input;
 mod encoding;
 mod handler;
 mod instruction_storage;
+mod module;
 mod processor;
 mod protocol;
 mod signatures;
 mod types;
+
+const CHANNEL_BUFFER_LIMIT: usize = 100;
+//todo move to spec file
+const ENCODING_SETTINGS: encoding::reed_solomon::Settings = encoding::reed_solomon::Settings {
+    data_shards_total: 3,
+    data_shards_sufficient: 2,
+};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -47,7 +60,7 @@ struct Args {
 #[behaviour(out_event = "CombinedBehaviourEvent")]
 struct CombinedBehaviour {
     // Main logic
-    // main: behaviour::Behaviour<MockConsensus<Vid>, MemoryStorage<Vid, Shard>, MockProcessor>,
+    main: behaviour::Behaviour,
     // MDNS performs LAN node discovery, allows not to manually write peer addresses
     mdns: mdns::async_io::Behaviour,
 }
@@ -56,12 +69,12 @@ struct CombinedBehaviour {
 // TODO: add Main event and check if applies
 #[allow(clippy::large_enum_variant)]
 enum CombinedBehaviourEvent {
-    Main(()),
+    Main(behaviour::OutEvent),
     Mdns(mdns::Event),
 }
 
-impl From<()> for CombinedBehaviourEvent {
-    fn from(event: ()) -> Self {
+impl From<behaviour::OutEvent> for CombinedBehaviourEvent {
+    fn from(event: behaviour::OutEvent) -> Self {
         CombinedBehaviourEvent::Main(event)
     }
 }
@@ -69,62 +82,6 @@ impl From<()> for CombinedBehaviourEvent {
 impl From<mdns::Event> for CombinedBehaviourEvent {
     fn from(event: mdns::Event) -> Self {
         CombinedBehaviourEvent::Mdns(event)
-    }
-}
-
-pub trait Module {
-    type InEvent;
-    type OutEvent;
-    type SharedState: State;
-}
-
-pub trait State {
-    fn accepts_input(&self) -> bool;
-}
-
-impl State for () {
-    fn accepts_input(&self) -> bool {
-        true
-    }
-}
-
-struct Ed25519Signer {
-    inner: libp2p::identity::ed25519::Keypair,
-}
-
-impl Ed25519Signer {
-    pub fn new(keypair: libp2p::identity::ed25519::Keypair) -> Self {
-        Self { inner: keypair }
-    }
-}
-
-impl rust_hashgraph::algorithm::Signer<GenesisPayload> for Ed25519Signer {
-    type SignerIdentity = PeerId;
-
-    fn sign(
-        &self,
-        hash: &rust_hashgraph::algorithm::event::Hash,
-    ) -> rust_hashgraph::algorithm::event::Signature {
-        let signature_bytes: [u8; 64] = self
-            .inner
-            .sign(hash.as_ref())
-            .try_into()
-            .expect("signature failure");
-        rust_hashgraph::algorithm::event::Signature(
-            rust_hashgraph::algorithm::event::Hash::from_array(signature_bytes),
-        )
-    }
-
-    fn verify(
-        &self,
-        hash: &rust_hashgraph::algorithm::event::Hash,
-        signature: &rust_hashgraph::algorithm::event::Signature,
-        identity: &Self::SignerIdentity,
-        genesis_payload: &GenesisPayload,
-    ) -> bool {
-        let public_key = genesis_payload.pubkey.clone().into();
-        identity.is_public_key(&public_key).unwrap_or(false);
-        public_key.verify(hash.as_ref(), signature.0.as_ref())
     }
 }
 
@@ -145,8 +102,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let transport = libp2p::development_transport(local_keypair).await?;
 
+    let mut join_handles = vec![];
+
+    // consensus
     let signer = Ed25519Signer::new(local_ed25519_keypair.clone());
-    let consensus_graph = Graph::new(
+    let graph = Graph::new(
         local_peer_id,
         EventPayload::<Vid, Sid>::new(vec![]),
         GenesisPayload {
@@ -156,16 +116,47 @@ async fn main() -> Result<(), Box<dyn Error>> {
         signer,
         (),
     );
+    let consensus = GraphWrapper::from_graph(graph);
+    let (consensus_server, consensus_client) = ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT);
+    join_handles.push(tokio::spawn(consensus.run(consensus_server)));
 
-    // let main_behaviour = behaviour::Behaviour::new(
-    //     local_peer_id,
-    //     Duration::from_secs(5),
-    //     args.is_main,
-    // );
+    // data memory
+    let (memory_bus_data_memory, memory_bus_processor) = MemoryBus::channel(CHANNEL_BUFFER_LIMIT);
+    let data_memory =
+        DistributedDataMemory::new(local_peer_id, memory_bus_data_memory, ENCODING_SETTINGS);
+    let (data_memory_server, data_memory_client) =
+        ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT);
+    join_handles.push(tokio::spawn(data_memory.run(data_memory_server)));
+
+    // instruction memory
+    let instruction_memory =
+        InstructionMemory::new(ENCODING_SETTINGS.data_shards_sufficient.try_into().unwrap());
+    let (instruction_memory_server, instruction_memory_client) =
+        ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT);
+    join_handles.push(tokio::spawn(
+        instruction_memory.run(instruction_memory_server),
+    ));
+
+    // processor
+    let processor = ShardProcessor::new(memory_bus_processor);
+    let (processor_server, processor_client) = ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT);
+    join_handles.push(tokio::spawn(processor.run(processor_server)));
+
+    let (behaviour_server, behaviour_client) = ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT);
+
+    let main_behaviour = behaviour::Behaviour::new(
+        local_peer_id,
+        Duration::from_secs(5),
+        behaviour_server,
+        consensus_client,
+        instruction_memory_client,
+        data_memory_client,
+        processor_client,
+    );
     let mdns = mdns::async_io::Behaviour::new(Default::default(), local_peer_id)?;
 
     let behaviour = CombinedBehaviour {
-        // main: main_behaviour,
+        main: main_behaviour,
         mdns,
     };
 

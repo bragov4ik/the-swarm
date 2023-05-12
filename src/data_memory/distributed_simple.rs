@@ -1,13 +1,12 @@
 use std::collections::{hash_map, HashMap, HashSet};
 
-use futures::channel::oneshot;
 use libp2p::PeerId;
 use thiserror::Error;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
+use crate::module::ModuleChannelServer;
 use crate::{
-    behaviour::ModuleChannelServer,
     encoding::{
         reed_solomon::{self, ReedSolomonWrapper},
         DataEncoding,
@@ -17,7 +16,7 @@ use crate::{
 
 pub struct Module;
 
-impl crate::Module for Module {
+impl crate::module::Module for Module {
     type InEvent = InEvent;
     type OutEvent = OutEvent;
     type SharedState = ();
@@ -119,6 +118,23 @@ pub struct MemoryBus {
     reads: mpsc::Receiver<(Vid, oneshot::Sender<Option<Shard>>)>,
     /// Store new value of the assigned shard
     writes: mpsc::Receiver<(Vid, Shard)>,
+}
+
+impl MemoryBus {
+    pub fn new(
+        reads: mpsc::Receiver<(Vid, oneshot::Sender<Option<Shard>>)>,
+        writes: mpsc::Receiver<(Vid, Shard)>,
+    ) -> Self {
+        Self { reads, writes }
+    }
+
+    pub fn channel(buffer: usize) -> (Self, crate::processor::single_threaded::MemoryBus) {
+        let reads = mpsc::channel(buffer);
+        let writes = mpsc::channel(buffer);
+        let this_end = Self::new(reads.1, writes.1);
+        let other_end = crate::processor::single_threaded::MemoryBus::new(reads.0, writes.0);
+        (this_end, other_end)
+    }
 }
 
 struct UninitializedDataMemory {
