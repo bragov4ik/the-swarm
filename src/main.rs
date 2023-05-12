@@ -1,18 +1,21 @@
 use clap::Parser;
+use consensus::graph::GenesisPayload;
 use futures::StreamExt;
 use libp2p::mdns;
 use libp2p::swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent};
 use libp2p::{identity, Multiaddr, PeerId};
+use rand::RngCore;
+use rust_hashgraph::algorithm::datastructure::Graph;
 use std::error::Error;
 use std::time::Duration;
 use tokio::io::{self, AsyncBufReadExt};
 use tracing::{debug, error, info};
 use types::Shard;
 
-use crate::consensus::graph::GraphWrapper;
+use crate::consensus::graph::{EventPayload, GraphWrapper};
 use crate::data_memory::DataMemory;
 use crate::processor::single_threaded::ShardProcessor;
-use crate::types::Vid;
+use crate::types::{Sid, Vid};
 
 mod behaviour;
 mod consensus;
@@ -23,6 +26,7 @@ mod handler;
 mod instruction_storage;
 mod processor;
 mod protocol;
+mod signatures;
 mod types;
 
 #[derive(Parser, Debug)]
@@ -56,6 +60,18 @@ enum CombinedBehaviourEvent {
     Mdns(mdns::Event),
 }
 
+impl From<()> for CombinedBehaviourEvent {
+    fn from(event: ()) -> Self {
+        CombinedBehaviourEvent::Main(event)
+    }
+}
+
+impl From<mdns::Event> for CombinedBehaviourEvent {
+    fn from(event: mdns::Event) -> Self {
+        CombinedBehaviourEvent::Mdns(event)
+    }
+}
+
 pub trait Module {
     type InEvent;
     type OutEvent;
@@ -72,6 +88,46 @@ impl State for () {
     }
 }
 
+struct Ed25519Signer {
+    inner: libp2p::identity::ed25519::Keypair,
+}
+
+impl Ed25519Signer {
+    pub fn new(keypair: libp2p::identity::ed25519::Keypair) -> Self {
+        Self { inner: keypair }
+    }
+}
+
+impl rust_hashgraph::algorithm::Signer<GenesisPayload> for Ed25519Signer {
+    type SignerIdentity = PeerId;
+
+    fn sign(
+        &self,
+        hash: &rust_hashgraph::algorithm::event::Hash,
+    ) -> rust_hashgraph::algorithm::event::Signature {
+        let signature_bytes: [u8; 64] = self
+            .inner
+            .sign(hash.as_ref())
+            .try_into()
+            .expect("signature failure");
+        rust_hashgraph::algorithm::event::Signature(
+            rust_hashgraph::algorithm::event::Hash::from_array(signature_bytes),
+        )
+    }
+
+    fn verify(
+        &self,
+        hash: &rust_hashgraph::algorithm::event::Hash,
+        signature: &rust_hashgraph::algorithm::event::Signature,
+        identity: &Self::SignerIdentity,
+        genesis_payload: &GenesisPayload,
+    ) -> bool {
+        let public_key = genesis_payload.pubkey.clone().into();
+        identity.is_public_key(&public_key).unwrap_or(false);
+        public_key.verify(hash.as_ref(), signature.0.as_ref())
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // let format = tracing_subscriber::fmt::format();
@@ -79,31 +135,32 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let args = Args::parse();
 
-    let local_key = identity::Keypair::generate_ed25519();
-    let local_peer_id = PeerId::from(local_key.public());
+    let local_keypair = libp2p::identity::Keypair::generate_ed25519();
+    let local_ed25519_keypair = local_keypair
+        .clone()
+        .into_ed25519()
+        .expect("Just created this variant");
+    let local_peer_id = PeerId::from(local_keypair.public());
     info!("Local peer id: {:?}", local_peer_id);
 
-    let transport = libp2p::development_transport(local_key).await?;
+    let transport = libp2p::development_transport(local_keypair).await?;
 
-    impl From<()> for CombinedBehaviourEvent {
-        fn from(event: ()) -> Self {
-            CombinedBehaviourEvent::Main(event)
-        }
-    }
-
-    impl From<mdns::Event> for CombinedBehaviourEvent {
-        fn from(event: mdns::Event) -> Self {
-            CombinedBehaviourEvent::Mdns(event)
-        }
-    }
+    let signer = Ed25519Signer::new(local_ed25519_keypair.clone());
+    let consensus_graph = Graph::new(
+        local_peer_id,
+        EventPayload::<Vid, Sid>::new(vec![]),
+        GenesisPayload {
+            pubkey: local_ed25519_keypair.public().into(),
+        },
+        30,
+        signer,
+        (),
+    );
 
     // let main_behaviour = behaviour::Behaviour::new(
-    //     consensus,
-    //     data_memory,
-    //     processor,
+    //     local_peer_id,
     //     Duration::from_secs(5),
     //     args.is_main,
-    //     local_peer_id,
     // );
     let mdns = mdns::async_io::Behaviour::new(Default::default(), local_peer_id)?;
 

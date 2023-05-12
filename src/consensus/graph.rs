@@ -17,6 +17,7 @@ use tokio::sync::Notify;
 use tracing::{error, info, warn};
 
 use crate::behaviour::ModuleChannelServer;
+use crate::signatures::EncodedEd25519Pubkey;
 use crate::types::{GraphSync, Sid, Vid};
 
 use super::Transaction;
@@ -49,11 +50,22 @@ pub enum InEvent {
 }
 
 pub type SyncJobs<TDataId, TShardId> =
-    datastructure::sync::Jobs<EventPayload<TDataId, TShardId>, PeerId>;
+    datastructure::sync::Jobs<EventPayload<TDataId, TShardId>, GenesisPayload, PeerId>;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub struct EventPayload<TDataId, TShardId> {
     transactions: Vec<Transaction<TDataId, TShardId, PeerId>>,
+}
+
+impl<TDataId, TShardId> EventPayload<TDataId, TShardId> {
+    pub fn new(transactions: Vec<Transaction<TDataId, TShardId, PeerId>>) -> Self {
+        Self { transactions }
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
+pub struct GenesisPayload {
+    pub pubkey: EncodedEd25519Pubkey,
 }
 
 pin_project! {
@@ -64,7 +76,7 @@ pin_project! {
     /// Use [`Self::from_graph()`] to create, [`Self::run()`] to operate.
     pub struct GraphWrapper<TDataId, TShardId, TSigner, TClock> {
         // todo: replace parentheses - ()
-        inner: Graph<EventPayload<TDataId, TShardId>, PeerId, TSigner, TClock>,
+        inner: Graph<EventPayload<TDataId, TShardId>, GenesisPayload, PeerId, TSigner, TClock>,
         state_updated: Arc<Notify>,
         included_transaction_buffer: Vec<Transaction<TDataId, TShardId, PeerId>>,
         retrieved_transaction_buffer: (PeerId, VecDeque<Transaction<TDataId, TShardId, PeerId>>, Hash),
@@ -72,7 +84,7 @@ pin_project! {
 }
 impl<TDataId, TShardId, TSigner, TClock> GraphWrapper<TDataId, TShardId, TSigner, TClock> {
     pub fn from_graph(
-        graph: Graph<EventPayload<TDataId, TShardId>, PeerId, TSigner, TClock>,
+        graph: Graph<EventPayload<TDataId, TShardId>, GenesisPayload, PeerId, TSigner, TClock>,
     ) -> Self {
         Self {
             inner: graph,
@@ -86,7 +98,9 @@ impl<TDataId, TShardId, TSigner, TClock> GraphWrapper<TDataId, TShardId, TSigner
         }
     }
 
-    pub fn inner(&self) -> &Graph<EventPayload<TDataId, TShardId>, PeerId, TSigner, TClock> {
+    pub fn inner(
+        &self,
+    ) -> &Graph<EventPayload<TDataId, TShardId>, GenesisPayload, PeerId, TSigner, TClock> {
         &self.inner
     }
 }
@@ -105,7 +119,7 @@ impl<TDataId, TShardId, TSigner, TClock> GraphWrapper<TDataId, TShardId, TSigner
 where
     TDataId: Serialize + Eq + std::hash::Hash + Debug + Clone,
     TShardId: Serialize + Eq + std::hash::Hash + Debug + Clone,
-    TSigner: Signer<SignerIdentity = PeerId>,
+    TSigner: Signer<GenesisPayload, SignerIdentity = PeerId>,
     TClock: Clock,
 {
     pub fn apply_sync(
@@ -156,7 +170,7 @@ impl<TDataId, TShardId, TSigner, TClock> Stream for GraphWrapper<TDataId, TShard
 where
     TDataId: Serialize + Eq + std::hash::Hash + Debug + Clone,
     TShardId: Serialize + Eq + std::hash::Hash + Debug + Clone,
-    TSigner: Signer<SignerIdentity = PeerId>,
+    TSigner: Signer<GenesisPayload, SignerIdentity = PeerId>,
     TClock: Clock,
 {
     type Item = (PeerId, Transaction<TDataId, TShardId, PeerId>, Hash);
@@ -191,7 +205,7 @@ where
                         this.retrieved_transaction_buffer.1 = txs;
                         match next_tx {
                             Some(tx) => {
-                                return Poll::Ready(Some((author, tx, event.signature().clone())))
+                                return Poll::Ready(Some((author, tx, event.hash().clone())))
                             }
                             None => {
                                 // more events might be available
@@ -208,7 +222,7 @@ where
 
 impl<TSigner, TClock> GraphWrapper<Vid, Sid, TSigner, TClock>
 where
-    TSigner: Signer<SignerIdentity = PeerId>,
+    TSigner: Signer<GenesisPayload, SignerIdentity = PeerId>,
     TClock: Clock,
 {
     async fn run(mut self, mut connection: ModuleChannelServer<Module>) {
