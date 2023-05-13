@@ -10,8 +10,9 @@ use std::{
 use futures::{pin_mut, Future};
 use libp2p::{
     swarm::{
-        derive_prelude::ConnectionEstablished, ConnectionClosed, FromSwarm, NetworkBehaviour,
-        NotifyHandler, ToSwarm,
+        derive_prelude::ConnectionEstablished,
+        dial_opts::{DialOpts, PeerCondition},
+        ConnectionClosed, FromSwarm, NetworkBehaviour, NotifyHandler, ToSwarm,
     },
     PeerId,
 };
@@ -19,12 +20,12 @@ use rand::Rng;
 
 use thiserror::Error;
 use tokio::{
-    sync::{mpsc, Notify},
+    sync::Notify,
     time::{sleep, Sleep},
 };
 use tracing::{debug, error, trace, warn};
 
-use crate::module::{Module, ModuleChannelClient, ModuleChannelServer, State};
+use crate::module::{ModuleChannelClient, ModuleChannelServer};
 use crate::{
     consensus::{self, Transaction},
     data_memory::distributed_simple,
@@ -36,8 +37,9 @@ use crate::{
     },
     protocol,
 };
+pub use module::{InEvent, Module, OutEvent};
 
-pub type OutEvent = Result<Event, Error>;
+pub type ToSwarmEvent = Result<Event, Error>;
 
 #[derive(Error, Debug)]
 pub enum Event {}
@@ -97,6 +99,7 @@ struct ConnectionError {
 
 pub struct Behaviour {
     local_peer_id: PeerId,
+    discovered_peers: VecDeque<PeerId>,
 
     user_interaction: ModuleChannelServer<module::Module>,
     // connections to other system components (run as separate async tasks)
@@ -140,6 +143,7 @@ impl Behaviour {
     ) -> Self {
         Self {
             local_peer_id,
+            discovered_peers: VecDeque::new(),
             user_interaction,
             consensus,
             instruction_memory,
@@ -155,6 +159,17 @@ impl Behaviour {
             to_notify: Vec::new(),
             state_updated: Arc::new(Notify::new()),
         }
+    }
+
+    /// Notify behaviour that peer is discovered
+    pub fn inject_peer_discovered(&mut self, new_peer: PeerId) {
+        debug!("Discovered new peer {}", new_peer);
+        self.discovered_peers.push_front(new_peer);
+    }
+
+    /// Notify behaviour that peer not discoverable and is expired according to MDNS
+    pub fn inject_peer_expired(&mut self, _peer: &PeerId) {
+        // Maybe add some logic later
     }
 }
 
@@ -188,7 +203,29 @@ macro_rules! cant_operate_error_return {
 
 impl NetworkBehaviour for Behaviour {
     type ConnectionHandler = Connection;
-    type OutEvent = OutEvent;
+    type OutEvent = ToSwarmEvent;
+
+    fn handle_established_inbound_connection(
+        &mut self,
+        _connection_id: libp2p::swarm::ConnectionId,
+        _peer: PeerId,
+        _local_addr: &libp2p::Multiaddr,
+        _remote_addr: &libp2p::Multiaddr,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        debug!("Creating new inbound connection handler");
+        Ok(Connection::new(10))
+    }
+
+    fn handle_established_outbound_connection(
+        &mut self,
+        _connection_id: libp2p::swarm::ConnectionId,
+        _peer: PeerId,
+        _addr: &libp2p::Multiaddr,
+        _role_override: libp2p::core::Endpoint,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        debug!("Creating new out bound connection handler");
+        Ok(Connection::new(10))
+    }
 
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
         match event {
@@ -260,6 +297,18 @@ impl NetworkBehaviour for Behaviour {
         params: &mut impl libp2p::swarm::PollParameters,
     ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::OutEvent, libp2p::swarm::THandlerInEvent<Self>>>
     {
+        trace!("Checking discovered peers to connect");
+        match self.discovered_peers.pop_back() {
+            Some(peer) => {
+                debug!("Discovered (new) peer, trying to negotiate protocol");
+                let opts = DialOpts::peer_id(peer)
+                    .condition(PeerCondition::Disconnected)
+                    .build();
+                return Poll::Ready(ToSwarm::Dial { opts });
+            }
+            None => trace!("No new peers found"),
+        }
+
         // todo: reconsider ordering
         loop {
             let state_updated_notification = self.state_updated.notified();

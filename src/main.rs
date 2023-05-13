@@ -32,6 +32,7 @@ mod instruction_storage;
 mod module;
 mod processor;
 mod protocol;
+mod repl;
 mod signatures;
 mod types;
 
@@ -69,12 +70,12 @@ struct CombinedBehaviour {
 // TODO: add Main event and check if applies
 #[allow(clippy::large_enum_variant)]
 enum CombinedBehaviourEvent {
-    Main(behaviour::OutEvent),
+    Main(behaviour::ToSwarmEvent),
     Mdns(mdns::Event),
 }
 
-impl From<behaviour::OutEvent> for CombinedBehaviourEvent {
-    fn from(event: behaviour::OutEvent) -> Self {
+impl From<behaviour::ToSwarmEvent> for CombinedBehaviourEvent {
+    fn from(event: behaviour::ToSwarmEvent) -> Self {
         CombinedBehaviourEvent::Main(event)
     }
 }
@@ -176,89 +177,67 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Dialed {}", addr)
     }
 
-    // TODO: remove, for demo only
-    if args.is_main {
-        info!("This is the main node");
-        if args.generate_input {
-            info!("Writing test input");
-            demo_input::test_write_input("src/demo_input/input.json")?;
-            info!("Wrote successfully");
-        } else {
-            info!("Reading test input");
-            let input = demo_input::read_input("src/demo_input/input.json").map_err(|e| {
-                error!("Failed to read input data: {:?}", e);
-                e
-            })?;
-            // for (id, data) in input.data_layout {
-            //     swarm
-            //         .behaviour_mut()
-            //         .main
-            //         .add_data_to_distribute(id, data)
-            //         .expect("Just checked that node is main");
-            // }
-            // for instruction in input.instructions {
-            //     swarm
-            //         .behaviour_mut()
-            //         .main
-            //         .add_instruction(instruction)
-            //         .expect("Just checked that node is main");
-            // }
-            info!("Read input and added it successfully!");
-        }
-    }
-
     let mut stdin = io::BufReader::new(io::stdin()).lines();
 
-    //     loop {
-    //         futures::select! {
-    //             line = stdin.next_line() => {
-    //                 let line = line?.expect("stdin closed");
-    //                 match &line[..] {
-    //                     "read all" => {
-    //                         let data = swarm.behaviour().main.read_all_local();
-    //                         info!("All local state:\n{:?}", data);
-    //                     },
-    //                     "distribute" => {
-    //                         info!("Starting distributing the vectors");
-    //                         swarm.behaviour_mut().main.allow_distribution();
-    //                     },
-    //                     "execute" => {
-    //                         info!("Starting executing instructions");
-    //                         swarm.behaviour_mut().main.allow_execution();
-    //                     },
-    //                     "help" => {
-    //                         info!("Available commands:
-    // read all - Print all data stored locally in the node
-    // distribute - Distribute initial data across nodes randomly
-    // execute - Add initial instructions to the execution schedule");
-    //                     }
-    //                     other => info!("Can't recognize command '{}'", other),
-    //                 }
-    //             }
-    //             event = swarm.select_next_some() => {
-    //                 match event {
-    //                     SwarmEvent::NewListenAddr { address, .. } => info!("Listening on {:?}", address),
-    //                     SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(
-    //                         mdns::Event::Discovered(list)
-    //                     )) => {
-    //                         for (peer, _) in list {
-    //                             swarm.behaviour_mut().main.inject_peer_discovered(peer);
-    //                         }
-    //                     }
-    //                     SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(
-    //                         mdns::Event::Expired(list)
-    //                     )) => {
-    //                         for (peer, _) in list {
-    //                             if !swarm.behaviour_mut().mdns.has_node(&peer) {
-    //                                 swarm.behaviour_mut().main.inject_peer_expired(&peer);
-    //                             }
-    //                         }
-    //                     }
-    //                     SwarmEvent::Behaviour(event) => info!("{:?}", event),
-    //                     other => debug!("{:?}", other),
-    //                 }
-    //             }
-    //         }
-    //    }
+    // todo: send sigterm
+    loop {
+        tokio::select! {
+                    line = stdin.next_line() => {
+                        let line = line?.expect("stdin closed");
+                        match &line[..] {
+                            "read all" => {
+                                if let Err(e) = behaviour_client.input.send(behaviour::InEvent::ListStored).await {
+                                    error!("channel to behaviour is closed ({}), cannot continue operation", e);
+                                    for handle in &join_handles {
+                                        handle.abort();
+                                    }
+                                    break;
+                                };
+                            },
+        //                     "distribute" => {
+        //                         info!("Starting distributing the vectors");
+        //                         swarm.behaviour_mut().main.allow_distribution();
+        //                     },
+        //                     "execute" => {
+        //                         info!("Starting executing instructions");
+        //                         swarm.behaviour_mut().main.allow_execution();
+        //                     },
+        //                     "help" => {
+        //                         info!("Available commands:
+        // read all - Print all data stored locally in the node
+        // distribute - Distribute initial data across nodes randomly
+        // execute - Add initial instructions to the execution schedule");
+        //                     }
+                            other => info!("Can't recognize command '{}'", other),
+                        }
+                    }
+                    event = swarm.select_next_some() => {
+                        match event {
+                            SwarmEvent::NewListenAddr { address, .. } => info!("Listening on {:?}", address),
+                            SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(
+                                mdns::Event::Discovered(list)
+                            )) => {
+                                for (peer, _) in list {
+                                    swarm.behaviour_mut().main.inject_peer_discovered(peer);
+                                }
+                            }
+                            SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(
+                                mdns::Event::Expired(list)
+                            )) => {
+                                for (peer, _) in list {
+                                    if !swarm.behaviour_mut().mdns.has_node(&peer) {
+                                        swarm.behaviour_mut().main.inject_peer_expired(&peer);
+                                    }
+                                }
+                            }
+                            SwarmEvent::Behaviour(event) => info!("{:?}", event),
+                            other => debug!("{:?}", other),
+                        }
+                    }
+                }
+    }
+    for handle in join_handles {
+        handle.await.unwrap()
+    }
     Ok(())
 }

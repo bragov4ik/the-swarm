@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::pin;
 use tokio::sync::Notify;
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 
 use crate::module::ModuleChannelServer;
 use crate::signatures::EncodedEd25519Pubkey;
@@ -132,7 +132,13 @@ where
         }
         for next_event in sync_jobs.into_linear() {
             let (next_event, signature) = next_event.into_parts();
-            self.inner.push_event(next_event, signature)?;
+            match self.inner.push_event(next_event, signature) {
+                Ok(()) => (),
+                Err(PushError::EventAlreadyExists(hash)) => {
+                    trace!("Received event {} is already known, skipping", hash)
+                }
+                Err(e) => return Err(e.into()),
+            };
         }
         let txs = std::mem::take(&mut self.included_transaction_buffer);
         let payload = EventPayload { transactions: txs };
