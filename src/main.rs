@@ -11,6 +11,7 @@ use std::error::Error;
 use std::time::Duration;
 use tokio::io::{self, AsyncBufReadExt};
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 use types::Shard;
 
@@ -32,9 +33,9 @@ mod instruction_storage;
 mod module;
 mod processor;
 mod protocol;
-mod repl;
 mod signatures;
 mod types;
+mod ui;
 
 const CHANNEL_BUFFER_LIMIT: usize = 100;
 //todo move to spec file
@@ -104,6 +105,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let transport = libp2p::development_transport(local_keypair).await?;
 
     let mut join_handles = vec![];
+    let shutdown_token = CancellationToken::new();
 
     // consensus
     let signer = Ed25519Signer::new(local_ed25519_keypair.clone());
@@ -118,7 +120,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         (),
     );
     let consensus = GraphWrapper::from_graph(graph);
-    let (consensus_server, consensus_client) = ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT);
+    let (consensus_server, consensus_client) =
+        ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT, shutdown_token.clone());
     join_handles.push(tokio::spawn(consensus.run(consensus_server)));
 
     // data memory
@@ -126,24 +129,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let data_memory =
         DistributedDataMemory::new(local_peer_id, memory_bus_data_memory, ENCODING_SETTINGS);
     let (data_memory_server, data_memory_client) =
-        ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT);
+        ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT, shutdown_token.clone());
     join_handles.push(tokio::spawn(data_memory.run(data_memory_server)));
 
     // instruction memory
     let instruction_memory =
         InstructionMemory::new(ENCODING_SETTINGS.data_shards_sufficient.try_into().unwrap());
     let (instruction_memory_server, instruction_memory_client) =
-        ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT);
+        ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT, shutdown_token.clone());
     join_handles.push(tokio::spawn(
         instruction_memory.run(instruction_memory_server),
     ));
 
     // processor
     let processor = ShardProcessor::new(memory_bus_processor);
-    let (processor_server, processor_client) = ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT);
+    let (processor_server, processor_client) =
+        ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT, shutdown_token.clone());
     join_handles.push(tokio::spawn(processor.run(processor_server)));
 
-    let (behaviour_server, behaviour_client) = ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT);
+    let (behaviour_server, behaviour_client) =
+        ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT, shutdown_token.clone());
 
     let main_behaviour = behaviour::Behaviour::new(
         local_peer_id,
@@ -188,9 +193,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             "read all" => {
                                 if let Err(e) = behaviour_client.input.send(behaviour::InEvent::ListStored).await {
                                     error!("channel to behaviour is closed ({}), cannot continue operation", e);
-                                    for handle in &join_handles {
-                                        handle.abort();
-                                    }
+                                    shutdown_token.cancel();
                                     break;
                                 };
                             },

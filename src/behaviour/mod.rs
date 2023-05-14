@@ -23,7 +23,7 @@ use tokio::{
     sync::Notify,
     time::{sleep, Sleep},
 };
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::module::{ModuleChannelClient, ModuleChannelServer};
 use crate::{
@@ -384,6 +384,7 @@ impl NetworkBehaviour for Behaviour {
                         },
                         ConnectionReceived::Response( _, _ ) => warn!("Unmatched response, need to recheck what to do in this case."),
                         ConnectionReceived::Simple(protocol::Simple::GossipGraph(sync)) => {
+                            debug!("Received sync from {}", s.peer_id);
                             let send_future = self.consensus.input.send(
                                 consensus::graph::InEvent::ApplySync { from: s.peer_id, sync }
                             );
@@ -734,6 +735,7 @@ impl NetworkBehaviour for Behaviour {
                     }
                 }
                 consensus::graph::OutEvent::SyncReady { to, sync } => {
+                    debug!("Sending sync to {}", to);
                     return Poll::Ready(ToSwarm::NotifyHandler {
                         peer_id: to,
                         handler: NotifyHandler::Any,

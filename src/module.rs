@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 pub trait Module {
     type InEvent;
@@ -21,6 +22,7 @@ pub struct ModuleChannelServer<M: Module> {
     pub input: mpsc::Receiver<M::InEvent>,
     pub output: mpsc::Sender<M::OutEvent>,
     state: Option<Arc<Mutex<M::SharedState>>>,
+    pub shutdown: CancellationToken,
 }
 
 impl<M> ModuleChannelServer<M>
@@ -30,6 +32,7 @@ where
     pub fn new(
         initial_state: Option<M::SharedState>,
         buffer: usize,
+        shutdown: CancellationToken,
     ) -> (ModuleChannelServer<M>, ModuleChannelClient<M>) {
         let (input_send, input_recv) = mpsc::channel(buffer);
         let (output_send, output_recv) = mpsc::channel(buffer);
@@ -38,6 +41,7 @@ where
             input: input_recv,
             output: output_send,
             state: state_shared.clone(),
+            shutdown,
         };
         let client = ModuleChannelClient {
             input: input_send,
