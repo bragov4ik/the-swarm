@@ -1,5 +1,6 @@
 use easy_repl::{command, CommandStatus, Repl};
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use crate::{
@@ -13,7 +14,10 @@ async fn print_responses(mut output: mpsc::Receiver<behaviour::OutEvent>) {
     }
 }
 
-pub fn run_repl(behaviour_channel: ModuleChannelClient<behaviour::Module>) {
+pub fn run_repl(
+    behaviour_channel: ModuleChannelClient<behaviour::Module>,
+    shutdown_token: CancellationToken,
+) {
     // to interact with async channel
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -91,4 +95,6 @@ pub fn run_repl(behaviour_channel: ModuleChannelClient<behaviour::Module>) {
     // Get(Vid),
     // Put(Vid, Data),
     // ,
+
+    shutdown_token.cancel()
 }

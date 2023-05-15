@@ -5,7 +5,7 @@ use tokio::{
     join,
     sync::{mpsc, oneshot},
 };
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::module::ModuleChannelServer;
 use crate::{
@@ -284,6 +284,10 @@ impl ShardProcessor {
                             }
                         },
                     }
+                }
+                _ = connection.shutdown.cancelled() => {
+                    info!("received cancel signal, shutting down processor");
+                    return;
                 }
             }
         }

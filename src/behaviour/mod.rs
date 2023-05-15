@@ -48,6 +48,8 @@ pub enum Event {}
 pub enum Error {
     #[error("Cannot continue behaviour operation. Shutdown (and fresh start?) is the most desirable outcome.")]
     UnableToOperate,
+    #[error("Received signal to shut down the module")]
+    CancelSignal,
 }
 
 mod module {
@@ -299,6 +301,17 @@ impl NetworkBehaviour for Behaviour {
         params: &mut impl libp2p::swarm::PollParameters,
     ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::OutEvent, libp2p::swarm::THandlerInEvent<Self>>>
     {
+        {
+            let shutdown_signal = self.user_interaction.shutdown.cancelled();
+            pin_mut!(shutdown_signal);
+            match shutdown_signal.poll(cx) {
+                Poll::Ready(_) => {
+                    return Poll::Ready(ToSwarm::GenerateEvent(Err(Error::CancelSignal)))
+                }
+                Poll::Pending => (),
+            }
+        }
+
         trace!("Checking discovered peers to connect");
         match self.discovered_peers.pop_back() {
             Some(peer) => {

@@ -1,7 +1,7 @@
 use std::collections::{hash_map, HashMap, HashSet};
 
 use libp2p::PeerId;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::module::ModuleChannelServer;
 use crate::processor::{Program, ProgramIdentifier};
@@ -145,6 +145,10 @@ impl InstructionMemory {
                             }
                         },
                     }
+                }
+                _ = connection.shutdown.cancelled() => {
+                    info!("received cancel signal, shutting down instruction memory");
+                    return;
                 }
             }
         }

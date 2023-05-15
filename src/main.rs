@@ -183,9 +183,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // repl is sync, so run it in a separate thread
-    std::thread::spawn(|| ui::run_repl(behaviour_client));
-
-    let mut stdin = io::BufReader::new(io::stdin()).lines();
+    let cloned_shutdown = shutdown_token.clone();
+    std::thread::spawn(|| ui::run_repl(behaviour_client, cloned_shutdown));
 
     // todo: send sigterm
     loop {
@@ -209,6 +208,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             }
                         }
                     }
+                    SwarmEvent::Behaviour(CombinedBehaviourEvent::Main(Err(behaviour::Error::CancelSignal))) => {
+                        info!("{}", behaviour::Error::CancelSignal);
+                        shutdown_token.cancel();
+                        break;
+                    },
                     SwarmEvent::Behaviour(event) => info!("{:?}", event),
                     other => debug!("{:?}", other),
                 }

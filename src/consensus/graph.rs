@@ -234,8 +234,8 @@ where
     pub async fn run(mut self, mut connection: ModuleChannelServer<Module>) {
         loop {
             tokio::select! {
-                result = self.next() => {
-                    let Some((from, tx, event_hash)) = result else {
+                next_tx = self.next() => {
+                    let Some((from, tx, event_hash)) = next_tx else {
                         info!("stream of events ended, shuttung down consensus");
                         return;
                     };
@@ -279,6 +279,10 @@ where
                             }
                         },
                     }
+                }
+                _ = connection.shutdown.cancelled() => {
+                    info!("received cancel signal, shutting down consensus");
+                    return;
                 }
             }
         }

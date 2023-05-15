@@ -419,7 +419,7 @@ where
                         })
                     }
                     // save stats mb
-                    // logged in handler already; also counted there to close conneciton
+                    // logged in handler already; also counted there to close connection
                     // on too many errors
                     Err(ConnectionError::Timeout) => {}
                     Err(ConnectionError::Other(err)) => {

@@ -579,10 +579,21 @@ impl DistributedDataMemory {
         }
     }
 
-    pub async fn run(self, mut connection: ModuleChannelServer<Module>) {
+    async fn run_memory(self, mut connection: ModuleChannelServer<Module>) {
         let Some(init) = self.uninit.run(&mut connection).await else {
             return;
         };
         init.run(&mut connection).await;
+    }
+
+    pub async fn run(self, connection: ModuleChannelServer<Module>) {
+        let shutdown = connection.shutdown.clone();
+        tokio::select! {
+            _ = self.run_memory(connection) => { }
+            _ = shutdown.cancelled() => {
+                info!("received cancel signal, shutting down data memory");
+                return;
+            }
+        }
     }
 }
