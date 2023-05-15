@@ -31,20 +31,23 @@ impl crate::module::Module for Module {
 }
 
 pub enum OutEvent {
+    GenerateSyncResponse {
+        to: PeerId,
+        sync: GraphSync,
+    },
+    KnownPeersResponse(Vec<PeerId>),
     FinalizedTransaction {
         from: PeerId,
         event_hash: Hash,
         tx: Transaction<Vid, Sid, PeerId>,
     },
-    SyncReady {
-        to: PeerId,
-        sync: GraphSync,
-    },
 }
 
 pub enum InEvent {
+    GenerateSyncRequest { to: PeerId },
+    // get list of known peers to the consensus
+    KnownPeersRequest,
     ApplySync { from: PeerId, sync: GraphSync },
-    GenerateSync { to: PeerId },
     ScheduleTx(Transaction<Vid, Sid, PeerId>),
     CreateStandalone,
 }
@@ -250,12 +253,7 @@ where
                         return;
                     };
                     match in_event {
-                        InEvent::ApplySync { from, sync } => {
-                            if let Err(e) = self.apply_sync(from, sync) {
-                                warn!("Failed to apply sync from peer {}: {}", from, e);
-                            }
-                        },
-                        InEvent::GenerateSync { to } => {
+                        InEvent::GenerateSyncRequest { to } => {
                             let sync = match self.inner.generate_sync_for(&to) {
                                 Ok(s) => s,
                                 Err(e) => {
@@ -265,9 +263,20 @@ where
                                 },
                             };
                             // todo: maybe use `try_send` or `reserve` on each send
-                            if let Err(_) = connection.output.send(OutEvent::SyncReady { to, sync }).await {
+                            if let Err(_) = connection.output.send(OutEvent::GenerateSyncResponse { to, sync }).await {
                                 error!("`connection.output` is closed, shuttung down consensus");
                                 return;
+                            }
+                        },
+                        InEvent::KnownPeersRequest => {
+                            if let Err(_) = connection.output.send(OutEvent::KnownPeersResponse((self.inner.peers()))).await {
+                                error!("`connection.output` is closed, shuttung down consensus");
+                                return;
+                            }
+                        }
+                        InEvent::ApplySync { from, sync } => {
+                            if let Err(e) = self.apply_sync(from, sync) {
+                                warn!("Failed to apply sync from peer {}: {}", from, e);
                             }
                         },
                         InEvent::ScheduleTx(tx) => {

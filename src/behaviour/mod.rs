@@ -25,7 +25,6 @@ use tokio::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::module::{ModuleChannelClient, ModuleChannelServer};
 use crate::{
     consensus::{self, Transaction},
     data_memory::distributed_simple,
@@ -36,6 +35,10 @@ use crate::{
         Program,
     },
     protocol,
+};
+use crate::{
+    module::{ModuleChannelClient, ModuleChannelServer},
+    types::Sid,
 };
 pub use module::{InEvent, Module, OutEvent};
 
@@ -77,6 +80,7 @@ mod module {
         Get(Vid),
         Put(Vid, Data),
         ListStored,
+        InitializeStorage,
     }
 
     #[derive(Debug)]
@@ -86,6 +90,7 @@ mod module {
         GetResponse(Result<(Vid, Data), crate::data_memory::distributed_simple::RecollectionError>),
         PutConfirmed(Vid),
         ListStoredResponse(Vec<(Vid, HashMap<Sid, PeerId>)>),
+        StorageInitialized,
     }
 }
 
@@ -569,7 +574,7 @@ impl NetworkBehaviour for Behaviour {
         // TODO: check if futures::select! is applicable to avoid starvation (??)
         match self.user_interaction.input.poll_recv(cx) {
             Poll::Ready(Some(event)) => match event {
-                module::InEvent::ScheduleProgram(instructions) => {
+                InEvent::ScheduleProgram(instructions) => {
                     let send_future = self.consensus.input.send(
                         consensus::graph::InEvent::ScheduleTx(Transaction::Execute(instructions))
                     );
@@ -589,7 +594,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
                     }
                 },
-                module::InEvent::Get(data_id) => {
+                InEvent::Get(data_id) => {
                     let send_future = self.data_memory.input.send(
                         distributed_simple::InEvent::RecollectRequest(data_id)
                     );
@@ -600,7 +605,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
                     }
                 },
-                module::InEvent::Put(data_id, data) => {
+                InEvent::Put(data_id, data) => {
                     let send_future = self.data_memory.input.send(
                         distributed_simple::InEvent::PrepareServiceRequest { data_id, data }
                     );
@@ -611,7 +616,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
                     }
                 },
-                module::InEvent::ListStored => {
+                InEvent::ListStored => {
                     let send_future = self.data_memory.input.send(
                         distributed_simple::InEvent::ListDistributed
                     );
@@ -620,6 +625,17 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Ready(Ok(_)) => (),
                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
+                    }
+                },
+                InEvent::InitializeStorage => {
+                    let send_future = self.consensus.input.send(
+                        consensus::graph::InEvent::KnownPeersRequest
+                    );
+                    pin_mut!(send_future);
+                    match send_future.poll(cx) {
+                        Poll::Ready(Ok(_)) => (),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                        Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
                     }
                 }
             },
@@ -667,6 +683,37 @@ impl NetworkBehaviour for Behaviour {
 
         match self.consensus.output.poll_recv(cx) {
             Poll::Ready(Some(event)) => match event {
+                consensus::graph::OutEvent::GenerateSyncResponse { to, sync } => {
+                    debug!("Sending sync to {}", to);
+                    return Poll::Ready(ToSwarm::NotifyHandler {
+                        peer_id: to,
+                        handler: NotifyHandler::Any,
+                        event: handler::IncomingEvent::SendPrimary(protocol::Primary::Simple(
+                            protocol::Simple::GossipGraph(sync),
+                        )),
+                    });
+                }
+                consensus::graph::OutEvent::KnownPeersResponse(peers) => {
+                    let peers = peers
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, peer)| (peer, Sid(i.try_into().unwrap())))
+                        .collect();
+                    let send_future =
+                        self.consensus
+                            .input
+                            .send(consensus::graph::InEvent::ScheduleTx(
+                                Transaction::InitializeStorage {
+                                    distribution: peers,
+                                },
+                            ));
+                    pin_mut!(send_future);
+                    match send_future.poll(cx) {
+                        Poll::Ready(Ok(_)) => (),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                        Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
+                    }
+                }
                 consensus::graph::OutEvent::FinalizedTransaction {
                     from,
                     tx,
@@ -749,16 +796,6 @@ impl NetworkBehaviour for Behaviour {
                         }
                     }
                 }
-                consensus::graph::OutEvent::SyncReady { to, sync } => {
-                    debug!("Sending sync to {}", to);
-                    return Poll::Ready(ToSwarm::NotifyHandler {
-                        peer_id: to,
-                        handler: NotifyHandler::Any,
-                        event: handler::IncomingEvent::SendPrimary(protocol::Primary::Simple(
-                            protocol::Simple::GossipGraph(sync),
-                        )),
-                    });
-                }
             },
             Poll::Ready(None) => cant_operate_error_return!(
                 "other half of `consensus.output` was closed. cannot operate without this module."
@@ -789,7 +826,7 @@ impl NetworkBehaviour for Behaviour {
                     let send_future = self
                         .consensus
                         .input
-                        .send(consensus::graph::InEvent::GenerateSync { to: random_peer });
+                        .send(consensus::graph::InEvent::GenerateSyncRequest { to: random_peer });
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
                         Poll::Ready(Ok(_)) => (),

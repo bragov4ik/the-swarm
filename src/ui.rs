@@ -1,4 +1,4 @@
-use easy_repl::{command, CommandStatus, Repl};
+use easy_repl::{command, validator, CommandStatus, Repl};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
@@ -18,13 +18,12 @@ pub fn run_repl(
     behaviour_channel: ModuleChannelClient<behaviour::Module>,
     shutdown_token: CancellationToken,
 ) {
-    // to interact with async channel
+    let ModuleChannelClient { input, output, .. } = behaviour_channel;
+
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("couldn't create an async runtime for repl");
-
-    let ModuleChannelClient { input, output, .. } = behaviour_channel;
 
     let mut repl = Repl::builder()
         .description("Example REPL")
@@ -68,16 +67,44 @@ pub fn run_repl(
                 Ok(CommandStatus::Done)
             }),
         })
-        .add("readall", command! {
-            "List all stored data in the system",
-            () => || {
+        .add("test", easy_repl::Command {
+            description: "Use mutably outside var y".into(),
+            args_info: vec!["appended".into()],
+            handler: Box::new(|args| {
+                // let validator = validator!(i32);
+                // validator(args)?;
+
                 if let Err(e) = rt.block_on(
                     input.send(InEvent::ListStored)
                 ) {
                     warn!("could not proceed with request: {}", e)
                 }
                 Ok(CommandStatus::Done)
-            }
+            }),
+        })
+        .add("readall", easy_repl::Command {
+            description: "List all stored data in the system".into(),
+            args_info: vec![],
+            handler: Box::new(|_| {
+                if let Err(e) = rt.block_on(
+                    input.send(InEvent::ListStored)
+                ) {
+                    warn!("could not proceed with request: {}", e)
+                }
+                Ok(CommandStatus::Done)
+            }),
+        })
+        .add("init", easy_repl::Command {
+            description: "Initialize storage with known peers".into(),
+            args_info: vec![],
+            handler: Box::new(|_| {
+                if let Err(e) = rt.block_on(
+                    input.send(InEvent::InitializeStorage)
+                ) {
+                    warn!("could not proceed with request: {}", e)
+                }
+                Ok(CommandStatus::Done)
+            }),
         })
         .build().expect("Failed to create repl");
 
