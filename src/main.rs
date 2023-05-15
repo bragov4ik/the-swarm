@@ -182,62 +182,38 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Dialed {}", addr)
     }
 
+    // repl is sync, so run it in a separate thread
+    std::thread::spawn(|| ui::run_repl(behaviour_client));
+
     let mut stdin = io::BufReader::new(io::stdin()).lines();
 
     // todo: send sigterm
     loop {
         tokio::select! {
-                    line = stdin.next_line() => {
-                        let line = line?.expect("stdin closed");
-                        match &line[..] {
-                            "read all" => {
-                                if let Err(e) = behaviour_client.input.send(behaviour::InEvent::ListStored).await {
-                                    error!("channel to behaviour is closed ({}), cannot continue operation", e);
-                                    shutdown_token.cancel();
-                                    break;
-                                };
-                            },
-        //                     "distribute" => {
-        //                         info!("Starting distributing the vectors");
-        //                         swarm.behaviour_mut().main.allow_distribution();
-        //                     },
-        //                     "execute" => {
-        //                         info!("Starting executing instructions");
-        //                         swarm.behaviour_mut().main.allow_execution();
-        //                     },
-        //                     "help" => {
-        //                         info!("Available commands:
-        // read all - Print all data stored locally in the node
-        // distribute - Distribute initial data across nodes randomly
-        // execute - Add initial instructions to the execution schedule");
-        //                     }
-                            other => info!("Can't recognize command '{}'", other),
+            event = swarm.select_next_some() => {
+                match event {
+                    SwarmEvent::NewListenAddr { address, .. } => info!("Listening on {:?}", address),
+                    SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(
+                        mdns::Event::Discovered(list)
+                    )) => {
+                        for (peer, _) in list {
+                            swarm.behaviour_mut().main.inject_peer_discovered(peer);
                         }
                     }
-                    event = swarm.select_next_some() => {
-                        match event {
-                            SwarmEvent::NewListenAddr { address, .. } => info!("Listening on {:?}", address),
-                            SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(
-                                mdns::Event::Discovered(list)
-                            )) => {
-                                for (peer, _) in list {
-                                    swarm.behaviour_mut().main.inject_peer_discovered(peer);
-                                }
+                    SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(
+                        mdns::Event::Expired(list)
+                    )) => {
+                        for (peer, _) in list {
+                            if !swarm.behaviour_mut().mdns.has_node(&peer) {
+                                swarm.behaviour_mut().main.inject_peer_expired(&peer);
                             }
-                            SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(
-                                mdns::Event::Expired(list)
-                            )) => {
-                                for (peer, _) in list {
-                                    if !swarm.behaviour_mut().mdns.has_node(&peer) {
-                                        swarm.behaviour_mut().main.inject_peer_expired(&peer);
-                                    }
-                                }
-                            }
-                            SwarmEvent::Behaviour(event) => info!("{:?}", event),
-                            other => debug!("{:?}", other),
                         }
                     }
+                    SwarmEvent::Behaviour(event) => info!("{:?}", event),
+                    other => debug!("{:?}", other),
                 }
+            }
+        }
     }
     for handle in join_handles {
         handle.await.unwrap()

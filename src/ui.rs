@@ -1,7 +1,28 @@
 use easy_repl::{command, CommandStatus, Repl};
+use tokio::sync::mpsc;
+use tracing::warn;
 
-pub async fn run_repl() {
-    let repl = Repl::builder()
+use crate::{
+    behaviour::{self, InEvent},
+    module::ModuleChannelClient,
+};
+
+async fn print_responses(mut output: mpsc::Receiver<behaviour::OutEvent>) {
+    while let Some(next) = output.recv().await {
+        println!("{:?}", next)
+    }
+}
+
+pub fn run_repl(behaviour_channel: ModuleChannelClient<behaviour::Module>) {
+    // to interact with async channel
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("couldn't create an async runtime for repl");
+
+    let ModuleChannelClient { input, output, .. } = behaviour_channel;
+
+    let mut repl = Repl::builder()
         .description("Example REPL")
         .prompt("=> ")
         .text_width(60 as usize)
@@ -43,5 +64,31 @@ pub async fn run_repl() {
                 Ok(CommandStatus::Done)
             }),
         })
+        .add("readall", command! {
+            "List all stored data in the system",
+            () => || {
+                if let Err(e) = rt.block_on(
+                    input.send(InEvent::ListStored)
+                ) {
+                    warn!("could not proceed with request: {}", e)
+                }
+                Ok(CommandStatus::Done)
+            }
+        })
         .build().expect("Failed to create repl");
+
+    // print responses in a separate thread because repl.run() is blocking
+    std::thread::spawn(|| {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("couldn't create an async runtime for repl");
+        rt.block_on(print_responses(output))
+    });
+
+    repl.run().expect("failed to run repl");
+    // ScheduleProgram(Instructions),
+    // Get(Vid),
+    // Put(Vid, Data),
+    // ,
 }

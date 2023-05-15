@@ -68,6 +68,7 @@ mod module {
         type SharedState = ();
     }
 
+    #[derive(Debug)]
     pub enum InEvent {
         // schedule program, collect data, distribute data
         ScheduleProgram(Instructions),
@@ -76,6 +77,7 @@ mod module {
         ListStored,
     }
 
+    #[derive(Debug)]
     pub enum OutEvent {
         // TODO: add hash?
         ScheduleOk,
