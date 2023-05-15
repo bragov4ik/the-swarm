@@ -200,7 +200,8 @@ impl UninitializedDataMemory {
                             let distribution = distribution.into_iter().collect();
                             if !self.verify_distribution(&distribution) {
                                 warn!("received distribution doesn't match expected pattern; \
-                                expected to have a peer for each shard id from 0 to <total shard number>");
+                                expected to have a peer for each shard id from 0 to <total shard number>; \
+                                got: {:?}", distribution);
                                 continue;
                             }
                             info!("storage initialized, ready");
@@ -223,7 +224,7 @@ impl UninitializedDataMemory {
                         | InEvent::AssignedResponse {
                             full_shard_id: _,
                             shard: _,
-                        } => warn!("have not initialize storage, ignoring request {:?}", in_event),
+                        } => warn!("have not initialized storage, ignoring request {:?}", in_event),
                     }
 
                 }
