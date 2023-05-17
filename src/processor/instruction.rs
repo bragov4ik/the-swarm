@@ -35,6 +35,8 @@ pub struct Instruction<TOperand, TResult> {
 }
 
 impl<TOperand, TResult> Instruction<TOperand, TResult> {
+    // might be useful
+    #[allow(unused)]
     pub fn map_operands<F, TNewOperand>(self, f: F) -> Instruction<TNewOperand, TResult>
     where
         F: Fn(TOperand) -> TNewOperand,
@@ -58,6 +60,8 @@ impl<TOperand, TResult> Instruction<TOperand, TResult> {
         }
     }
 
+    // might be useful
+    #[allow(unused)]
     pub fn as_ref(&self) -> Instruction<&TOperand, &TResult> {
         let ref_op = match self.operation {
             Operation::Sub(ref o) => Operation::Sub(o.as_ref()),
@@ -72,6 +76,8 @@ impl<TOperand, TResult> Instruction<TOperand, TResult> {
 }
 
 impl<O, R> Instruction<Option<O>, R> {
+    // might be useful
+    #[allow(unused)]
     pub fn transpose_operation(self) -> Option<Instruction<O, R>> {
         match self.operation {
             Operation::Sub(o) => o.transpose().map(|o| Instruction {

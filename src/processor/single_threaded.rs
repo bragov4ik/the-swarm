@@ -53,11 +53,6 @@ impl crate::module::State for ModuleState {
     }
 }
 
-pub struct Settings {
-    pub data_shards_total: u64,
-    pub data_shards_sufficient: u64,
-}
-
 pub struct MemoryBus {
     reads: mpsc::Sender<(Vid, oneshot::Sender<Option<Shard>>)>,
     writes: mpsc::Sender<(Vid, Shard)>,

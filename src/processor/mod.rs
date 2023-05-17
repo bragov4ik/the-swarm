@@ -62,6 +62,8 @@ impl Program {
         )))
     }
 
+    // just in case
+    #[allow(unused)]
     pub fn instructions(&self) -> &Instructions {
         &self.instructions
     }
