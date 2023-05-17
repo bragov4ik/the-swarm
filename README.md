@@ -29,6 +29,12 @@ The results should be the same as in `src/demo_input/expected_result.json`
 
 ## Debugging
 Different log levels can be turned on with `RUST_LOG` environment variable. Details see in [tracing-subscriber documentation](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/index.html#filtering-events-with-environment-variables).
+Also it is possible to filter logs of message passing by specifying log levels for `channel_recv` or `channel_send` targets (to see logged `send`'s and `recv`'s respectively).
+For example, one can run
+```
+RUST_LOG="channel_recv=DEBUG,channel_send=DEBUG" cargo run --release
+```
+to see all debug channel logs.
 
 ## Future work
 - Complete rust graph consensus implementation (for example [this one](https://github.com/jaybutera/rust-hashgraph), there is no event ordering and the code is not optimized, I tried to solve it in [fork](https://github.com/bragov4ik/rust-hashgraph), but it would take too much time)
