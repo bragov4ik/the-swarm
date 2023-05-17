@@ -562,6 +562,17 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
                     }
                 },
+                distributed_simple::OutEvent::Initialized => {
+                    let send_future = self.user_interaction.output.send(
+                        module::OutEvent::StorageInitialized
+                    );
+                    pin_mut!(send_future);
+                    match send_future.poll(cx) {
+                        Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", "StorageInitialized"),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
+                        Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
+                    }
+                },
             },
             Poll::Ready(None) => cant_operate_error_return!("other half of `data_memory.output` was closed. cannot operate without this module."),
             Poll::Pending => (),

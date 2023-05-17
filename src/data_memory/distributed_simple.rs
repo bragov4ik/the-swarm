@@ -26,6 +26,9 @@ pub type FullShardId = (Vid, Sid);
 
 #[derive(Debug, Clone)]
 pub enum OutEvent {
+    // Ready to operate
+    Initialized,
+
     // Data distribution
     /// 1. Prepare to serve the shards to nodes
     /// - (server node) Done!
@@ -206,6 +209,10 @@ impl UninitializedDataMemory {
                                 continue;
                             }
                             info!("storage initialized, ready");
+                            if let Err(_) = connection.output.send(OutEvent::Initialized).await {
+                                error!("`connection.output` is closed, shuttung down data memory");
+                                return None;
+                            }
                             return Some(self.initialize(distribution))
                         },
                         InEvent::StoreConfirmed {
