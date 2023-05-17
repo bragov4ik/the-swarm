@@ -26,6 +26,7 @@ impl crate::module::Module for Module {
     type SharedState = ModuleState;
 }
 
+#[derive(Debug, Clone)]
 pub enum OutEvent {
     FinishedExecution {
         program_id: ProgramIdentifier,
@@ -33,6 +34,7 @@ pub enum OutEvent {
     },
 }
 
+#[derive(Debug, Clone)]
 pub enum InEvent {
     Execute(Program),
 }
@@ -123,12 +125,11 @@ where
 impl ShardProcessor {
     fn calculate(operation: &Operation<Shard>) -> Shard {
         match operation {
-            Operation::Dot(operation) => map_zip(
+            Operation::Sub(operation) => map_zip(
                 &operation.first,
                 &operation.second,
-                reed_solomon_erasure::galois_8::mul,
+                reed_solomon_erasure::galois_8::add,
             ),
-            // todo: sub = add, div, other stuff from the lib
             Operation::Plus(operation) => map_zip(
                 &operation.first,
                 &operation.second,
@@ -192,7 +193,7 @@ impl ShardProcessor {
         context: &HashMap<Vid, Shard>,
     ) -> Result<Operation<Shard>, Error> {
         let retrieved = match op {
-            Operation::Dot(binary) => Operation::Dot(
+            Operation::Sub(binary) => Operation::Sub(
                 self.retrieve_binary(binary, context)
                     .await?
                     .ok_or(Error::NoShardsAssigned)?,
@@ -212,7 +213,7 @@ impl ShardProcessor {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum Error {
     #[error("Channel to memory for data requests was closed.")]
     DataRequestChannelClosed,

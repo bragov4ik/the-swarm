@@ -30,6 +30,7 @@ impl crate::module::Module for Module {
     type SharedState = ();
 }
 
+#[derive(Debug, Clone)]
 pub enum OutEvent {
     GenerateSyncResponse {
         to: PeerId,
@@ -43,6 +44,7 @@ pub enum OutEvent {
     },
 }
 
+#[derive(Debug, Clone)]
 pub enum InEvent {
     GenerateSyncRequest { to: PeerId },
     // get list of known peers to the consensus

@@ -40,7 +40,7 @@ impl<TOperand, TResult> Instruction<TOperand, TResult> {
         F: Fn(TOperand) -> TNewOperand,
     {
         let new_op = match self.operation {
-            Operation::Dot(binary) => Operation::Dot(BinaryOp {
+            Operation::Sub(binary) => Operation::Sub(BinaryOp {
                 first: f(binary.first),
                 second: f(binary.second),
             }),
@@ -60,7 +60,7 @@ impl<TOperand, TResult> Instruction<TOperand, TResult> {
 
     pub fn as_ref(&self) -> Instruction<&TOperand, &TResult> {
         let ref_op = match self.operation {
-            Operation::Dot(ref o) => Operation::Dot(o.as_ref()),
+            Operation::Sub(ref o) => Operation::Sub(o.as_ref()),
             Operation::Plus(ref o) => Operation::Plus(o.as_ref()),
             Operation::Inv(ref o) => Operation::Inv(o.as_ref()),
         };
@@ -74,8 +74,8 @@ impl<TOperand, TResult> Instruction<TOperand, TResult> {
 impl<O, R> Instruction<Option<O>, R> {
     pub fn transpose_operation(self) -> Option<Instruction<O, R>> {
         match self.operation {
-            Operation::Dot(o) => o.transpose().map(|o| Instruction {
-                operation: Operation::Dot(o),
+            Operation::Sub(o) => o.transpose().map(|o| Instruction {
+                operation: Operation::Sub(o),
                 result: self.result,
             }),
             Operation::Plus(o) => o.transpose().map(|o| Instruction {
@@ -92,12 +92,12 @@ impl<O, R> Instruction<Option<O>, R> {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub enum Operation<TOperand> {
-    Dot(BinaryOp<TOperand>),
+    Sub(BinaryOp<TOperand>),
     Plus(BinaryOp<TOperand>),
     Inv(UnaryOp<TOperand>),
 }
 
-impl_binary_constructor!(dot, Dot);
+impl_binary_constructor!(dot, Sub);
 impl_binary_constructor!(plus, Plus);
 impl_unary!(inv, Inv);
 

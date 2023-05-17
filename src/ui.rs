@@ -1,17 +1,40 @@
 use easy_repl::{command, validator, CommandStatus, Repl};
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, Sender};
 use tokio_util::sync::CancellationToken;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::{
     behaviour::{self, InEvent},
+    io::{read_input, InputData, InputProgram},
     module::ModuleChannelClient,
+    types::{Data, Vid},
 };
 
 async fn print_responses(mut output: mpsc::Receiver<behaviour::OutEvent>) {
     while let Some(next) = output.recv().await {
         println!("{:?}", next)
     }
+}
+
+async fn handle_put(filename: &str, input: &Sender<InEvent>) -> anyhow::Result<()> {
+    let data_list = read_input::<_, InputData>(filename).await?;
+    for (data_id, data) in data_list.data {
+        input.send(InEvent::Put(data_id, data)).await?;
+    }
+    Ok(())
+}
+
+async fn handle_get(data_id: Vid, input: &Sender<InEvent>) -> anyhow::Result<()> {
+    input.send(InEvent::Get(data_id)).await?;
+    Ok(())
+}
+
+async fn handle_schedule_exec(filename: &str, input: &Sender<InEvent>) -> anyhow::Result<()> {
+    let program = read_input::<_, InputProgram>(filename).await?;
+    input
+        .send(InEvent::ScheduleProgram(program.instructions))
+        .await?;
+    Ok(())
 }
 
 pub fn run_repl(
@@ -29,84 +52,84 @@ pub fn run_repl(
         .description("Example REPL")
         .prompt("=> ")
         .text_width(60 as usize)
-        .add("count", command! {
-            "Count from X to Y",
-            (X:i32, Y:i32) => |x, y| {
-                for i in x..=y {
-                    print!(" {}", i);
-                }
-                println!();
-                Ok(CommandStatus::Done)
-            }
-        })
-        .add("say", command! {
-            "Say X",
-            (:f32) => |x| {
-                println!("x is equal to {}", x);
-                Ok(CommandStatus::Done)
+        .with_filename_completion(true)
+        .add(
+            "init",
+            easy_repl::Command {
+                description: "Initialize storage with known peers".into(),
+                args_info: vec![],
+                handler: Box::new(|_| {
+                    if let Err(e) = rt.block_on(input.send(InEvent::InitializeStorage)) {
+                        warn!("could not proceed with request: {}", e)
+                    }
+                    info!("Initializing storage... This may take some time");
+                    Ok(CommandStatus::Done)
+                }),
             },
-        })
-        .add("outx", command! {
-            "Use mutably outside var x. This command has a really long description so we need to wrap it somehow, it is interesting how actually the wrapping will be performed.",
-            () => || {
-                // outside_x += "x";
-                // println!("{}", outside_x);
-                Ok(CommandStatus::Done)
+        )
+        .add(
+            "readall",
+            easy_repl::Command {
+                description: "List all stored data in the system".into(),
+                args_info: vec![],
+                handler: Box::new(|_| {
+                    if let Err(e) = rt.block_on(input.send(InEvent::ListStored)) {
+                        warn!("could not proceed with request: {}", e)
+                    }
+                    Ok(CommandStatus::Done)
+                }),
             },
-        })
-        // this shows how to create Command manually with the help of the validator! macro
-        // one could also implement arguments validation manually
-        .add("outy", easy_repl::Command {
-            description: "Use mutably outside var y".into(),
-            args_info: vec!["appended".into()],
-            handler: Box::new(|args| {
-                // let validator = validator!(i32);
-                // validator(args)?;
-                // outside_y += args[0];
-                // println!("{}", outside_y);
-                Ok(CommandStatus::Done)
-            }),
-        })
-        .add("test", easy_repl::Command {
-            description: "Use mutably outside var y".into(),
-            args_info: vec!["appended".into()],
-            handler: Box::new(|args| {
-                // let validator = validator!(i32);
-                // validator(args)?;
-
-                if let Err(e) = rt.block_on(
-                    input.send(InEvent::ListStored)
-                ) {
-                    warn!("could not proceed with request: {}", e)
-                }
-                Ok(CommandStatus::Done)
-            }),
-        })
-        .add("readall", easy_repl::Command {
-            description: "List all stored data in the system".into(),
-            args_info: vec![],
-            handler: Box::new(|_| {
-                if let Err(e) = rt.block_on(
-                    input.send(InEvent::ListStored)
-                ) {
-                    warn!("could not proceed with request: {}", e)
-                }
-                Ok(CommandStatus::Done)
-            }),
-        })
-        .add("init", easy_repl::Command {
-            description: "Initialize storage with known peers".into(),
-            args_info: vec![],
-            handler: Box::new(|_| {
-                if let Err(e) = rt.block_on(
-                    input.send(InEvent::InitializeStorage)
-                ) {
-                    warn!("could not proceed with request: {}", e)
-                }
-                Ok(CommandStatus::Done)
-            }),
-        })
-        .build().expect("Failed to create repl");
+        )
+        .add(
+            "put",
+            easy_repl::Command {
+                description: "Load data from the file into the system".into(),
+                args_info: vec!["filename".into()],
+                handler: Box::new(|args| {
+                    let validator = validator!(String);
+                    validator(args)?;
+                    let filename = args[0];
+                    if let Err(e) = rt.block_on(handle_put(filename, &input)) {
+                        warn!("could not proceed with request: {}", e)
+                    }
+                    Ok(CommandStatus::Done)
+                }),
+            },
+        )
+        .add(
+            "get",
+            easy_repl::Command {
+                description: "Get data stored in the distributed system".into(),
+                args_info: vec!["data id".into()],
+                handler: Box::new(|args| {
+                    let validator = validator!(u64);
+                    validator(args)?;
+                    let data_id = Vid(args[0].parse::<u64>()?);
+                    if let Err(e) = rt.block_on(handle_get(data_id, &input)) {
+                        warn!("could not proceed with request: {}", e)
+                    }
+                    Ok(CommandStatus::Done)
+                }),
+            },
+        )
+        .add(
+            "schedule",
+            easy_repl::Command {
+                description: "Schedule the program from the file".into(),
+                args_info: vec!["filename".into()],
+                handler: Box::new(|args| {
+                    let validator = validator!(String);
+                    validator(args)?;
+                    let filename = args[0];
+                    if let Err(e) = rt.block_on(handle_schedule_exec(filename, &input)) {
+                        warn!("could not proceed with request: {}", e)
+                    }
+                    Ok(CommandStatus::Done)
+                }),
+            },
+        )
+        .build()
+        .expect("Failed to create repl");
 
     // print responses in a separate thread because repl.run() is blocking
     std::thread::spawn(|| {
@@ -118,10 +141,5 @@ pub fn run_repl(
     });
 
     repl.run().expect("failed to run repl");
-    // ScheduleProgram(Instructions),
-    // Get(Vid),
-    // Put(Vid, Data),
-    // ,
-
     shutdown_token.cancel()
 }

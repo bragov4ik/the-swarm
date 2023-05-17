@@ -16,6 +16,7 @@ impl crate::module::Module for Module {
     type SharedState = ();
 }
 
+#[derive(Debug, Clone)]
 pub enum OutEvent {
     /// Next program for execution is available.
     NextProgram(Program),
@@ -23,6 +24,7 @@ pub enum OutEvent {
     FinishedExecution(ProgramIdentifier),
 }
 
+#[derive(Debug, Clone)]
 pub enum InEvent {
     /// New program has been finalized
     FinalizedProgram(Program),

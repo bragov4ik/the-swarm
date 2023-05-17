@@ -24,6 +24,7 @@ impl crate::module::Module for Module {
 
 pub type FullShardId = (Vid, Sid);
 
+#[derive(Debug, Clone)]
 pub enum OutEvent {
     // Data distribution
     /// 1. Prepare to serve the shards to nodes
@@ -56,7 +57,7 @@ pub enum OutEvent {
     RecollectResponse(Result<(Vid, Data), RecollectionError>),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum RecollectionError {
     #[error(
         "Data id requested is not known to be stored in the system at all. \
@@ -67,7 +68,7 @@ pub enum RecollectionError {
     NotEnoughShards,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InEvent {
     Initialize {
         distribution: Vec<(PeerId, Sid)>,

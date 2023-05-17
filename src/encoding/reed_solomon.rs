@@ -97,3 +97,29 @@ impl DataEncoding<Data, Sid, Shard, Settings, Error> for ReedSolomonWrapper {
         }
     }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use libp2p::PeerId;
+
+//     use crate::{
+//         encoding::{DataEncoding, MockEncodingSettings, reed_solomon::{ReedSolomonWrapper, Settings}},
+//         types::Sid,
+//     };
+
+//     #[test]
+//     fn it_works() {
+//         let encoding = ReedSolomonWrapper::new(Settings {
+//             data_shards_total: 3,
+//             data_shards_sufficient: 2,
+//         });
+//         let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+//         let encoded = encoding.encode(data).unwrap();
+//         assert_eq!(encoded.len(), 3);
+//         assert_eq!(encoded.get(&Sid(0)).unwrap(), &[1, 2, 3, 4]);
+//         assert_eq!(encoded.get(&Sid(1)).unwrap(), &[5, 6, 7, 8]);
+//         assert_eq!(encoded.get(&Sid(2)).unwrap(), &[9, 10, 11, 12]);
+//         let decoded = encoding.decode(encoded).unwrap();
+//         assert_eq!(data, decoded)
+//     }
+// }

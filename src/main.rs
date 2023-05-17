@@ -3,21 +3,17 @@ use consensus::graph::GenesisPayload;
 use futures::StreamExt;
 use libp2p::mdns;
 use libp2p::swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent};
-use libp2p::{identity, Multiaddr, PeerId};
-use rand::RngCore;
+use libp2p::{Multiaddr, PeerId};
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error, info};
+
 use rust_hashgraph::algorithm::datastructure::Graph;
 use signatures::Ed25519Signer;
 use std::error::Error;
 use std::time::Duration;
-use tokio::io::{self, AsyncBufReadExt};
-use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
-use types::Shard;
 
 use crate::consensus::graph::{EventPayload, GraphWrapper};
 use crate::data_memory::distributed_simple::{DistributedDataMemory, MemoryBus};
-use crate::data_memory::DataMemory;
 use crate::instruction_storage::InstructionMemory;
 use crate::module::ModuleChannelServer;
 use crate::processor::single_threaded::ShardProcessor;
@@ -26,10 +22,11 @@ use crate::types::{Sid, Vid};
 mod behaviour;
 mod consensus;
 mod data_memory;
-mod demo_input;
 mod encoding;
 mod handler;
 mod instruction_storage;
+mod io;
+mod logging_helpers;
 mod module;
 mod processor;
 mod protocol;
@@ -89,6 +86,14 @@ impl From<mdns::Event> for CombinedBehaviourEvent {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    #[cfg(feature = "gen-input")]
+    {
+        crate::io::test_write_input("data.json", "program.json")
+            .await
+            .unwrap();
+        return Ok(());
+    }
+
     // let format = tracing_subscriber::fmt::format();
     tracing_subscriber::fmt::init();
 
@@ -152,7 +157,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let main_behaviour = behaviour::Behaviour::new(
         local_peer_id,
-        Duration::from_secs(5),
+        Duration::from_millis(2000),
         behaviour_server,
         consensus_client,
         instruction_memory_client,
@@ -210,6 +215,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                     SwarmEvent::Behaviour(CombinedBehaviourEvent::Main(Err(behaviour::Error::CancelSignal))) => {
                         info!("{}", behaviour::Error::CancelSignal);
+                        shutdown_token.cancel();
+                        break;
+                    },
+                    SwarmEvent::Behaviour(CombinedBehaviourEvent::Main(Err(behaviour::Error::UnableToOperate))) => {
+                        error!("Shutting down...");
                         shutdown_token.cancel();
                         break;
                     },

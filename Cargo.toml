@@ -27,3 +27,7 @@ blake2 = "0.10.6"
 reed-solomon-erasure = "6.0.0"
 easy-repl = "0.2.1"
 tokio-util = "0.7.8"
+anyhow = "1.0.71"
+
+[features]
+gen-input = []
