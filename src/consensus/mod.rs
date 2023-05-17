@@ -1,4 +1,5 @@
 //! Consensus and its main functions.
+//! todo: revisit docs
 //!
 //! ## Description
 //!
@@ -37,50 +38,6 @@ use serde::{Deserialize, Serialize};
 use crate::processor::{Instructions, ProgramIdentifier};
 
 pub mod graph;
-// pub mod mock;
-
-pub trait GraphConsensus {
-    type OperandId;
-    type OperandShardId;
-
-    /// Peer identifier
-    type PeerId;
-
-    /// Data that is transferred for peers sync.
-    /// Something like list of events that source peer knows.
-    type SyncPayload;
-
-    type UpdateError: Debug;
-    type PushTxError: Debug;
-    type SyncGenerateError: Debug;
-
-    /// Update local knowledge of the graph according to received gossip
-    fn update_graph(&mut self, update: Self::SyncPayload) -> Result<(), Self::UpdateError>;
-
-    /// Get graph state to send to peers
-    fn get_sync(
-        &self,
-        sync_for: &Self::PeerId,
-    ) -> Result<Self::SyncPayload, Self::SyncGenerateError>;
-
-    /// Add transaction to a queue - list of txs that will be added in next event
-    /// created by this node.
-    fn push_tx(
-        &mut self,
-        tx: Transaction<Self::OperandId, Self::OperandShardId, Self::PeerId>,
-    ) -> Result<(), Self::PushTxError>;
-}
-
-pub trait DataDiscoverer {
-    /// ID used to distinguish data
-    type DataIdentifier;
-
-    /// Address of location data is located at
-    type PeerAddr;
-
-    /// Find peers where shards of `vector_id` are located and can be retreived.
-    fn shard_locations(&self, data_id: &Self::DataIdentifier) -> Vec<Self::PeerAddr>;
-}
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub enum Transaction<TDataId, TShardId, TPeerId> {

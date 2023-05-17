@@ -1,11 +1,11 @@
 //! Reading & parsing initial demo input.
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{error::Error, fmt::Display, path::Path};
+use std::path::Path;
 
 use crate::{
     processor::{Instruction, Instructions},
-    types::{Data, Shard, Vid},
+    types::{Data, Vid},
 };
 
 #[derive(Serialize, Deserialize, Debug)]

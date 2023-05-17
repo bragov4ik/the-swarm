@@ -1,4 +1,5 @@
 //! Data storage and localization.
+//! todo: revisit docs
 //!
 //! This module is responsible for saving data assigned to this peer,
 //! temporarily storing shards that are currently in the process

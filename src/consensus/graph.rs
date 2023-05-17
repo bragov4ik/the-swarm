@@ -103,6 +103,8 @@ impl<TDataId, TShardId, TSigner, TClock> GraphWrapper<TDataId, TShardId, TSigner
         }
     }
 
+    // might be useful
+    #[allow(unused)]
     pub fn inner(
         &self,
     ) -> &Graph<EventPayload<TDataId, TShardId>, GenesisPayload, PeerId, TSigner, TClock> {
@@ -271,7 +273,7 @@ where
                             }
                         },
                         InEvent::KnownPeersRequest => {
-                            if let Err(_) = connection.output.send(OutEvent::KnownPeersResponse((self.inner.peers()))).await {
+                            if let Err(_) = connection.output.send(OutEvent::KnownPeersResponse(self.inner.peers())).await {
                                 error!("`connection.output` is closed, shuttung down consensus");
                                 return;
                             }
