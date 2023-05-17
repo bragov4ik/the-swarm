@@ -262,6 +262,8 @@ impl UninitializedDataMemory {
 /// Tracks locations of data shards, stores shards assigned to this peer,
 /// and manages initial distribution (serving) with rebuilding of data.
 ///
+/// Created with [`UninitializedDataMemory::initialize()`]
+///
 /// Use [`Self::run()`] to operate.
 struct InitializedDataMemory {
     // `HashMap<Sid, Shard>` because in the future we might store multiple shards on each peer
@@ -277,10 +279,6 @@ struct InitializedDataMemory {
 }
 
 impl InitializedDataMemory {
-    pub fn new(uninitialized: UninitializedDataMemory, distribution: HashMap<PeerId, Sid>) -> Self {
-        uninitialized.initialize(distribution)
-    }
-
     fn assigned_shard_id(&self) -> Option<&Sid> {
         self.distribution.get(&self.local_id)
     }
@@ -298,7 +296,9 @@ impl InitializedDataMemory {
         shards.insert(full_shard_id.1, data)
     }
 
+    // todo: make some removal mechanism
     /// Remove shard from the local storage and return it (if there was any)
+    #[allow(unused)]
     fn remove_shard(&mut self, full_shard_id: &FullShardId) -> Option<Shard> {
         self.local_storage
             .get_mut(&full_shard_id.0)
@@ -374,7 +374,7 @@ impl InitializedDataMemory {
                     //     return;
                     // }
                     match in_event {
-                        InEvent::Initialize { distribution } => {
+                        InEvent::Initialize { distribution: _ } => {
                             warn!("received `InitializeStorage` transaction but storage was already initialized. ignoring");
                         },
                         // initial distribution
@@ -552,7 +552,7 @@ impl InitializedDataMemory {
                         .unwrap_or_default();
                     if let Err(e) = response_handle.send(shards.get(0).cloned()) {
                         warn!("response handle for memory bus request is closed, shouldn't happen \
-                            but let's try to continue operation");
+                            but let's try to continue operation; {:?}", e);
                     }
                 }
                 write_request = self.bus.writes.recv() => {

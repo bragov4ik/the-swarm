@@ -2,7 +2,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::Arc,
     task::Poll,
     time::Duration,
 };
@@ -97,7 +97,7 @@ mod module {
 
 struct ConnectionEvent {
     peer_id: libp2p::PeerId,
-    connection: libp2p::swarm::ConnectionId,
+    _connection: libp2p::swarm::ConnectionId,
     event: crate::handler::ConnectionReceived,
 }
 
@@ -108,6 +108,8 @@ struct ConnectionError {
 }
 
 pub struct Behaviour {
+    // might be useful, leave it
+    #[allow(unused)]
     local_peer_id: PeerId,
     discovered_peers: VecDeque<PeerId>,
 
@@ -289,7 +291,7 @@ impl NetworkBehaviour for Behaviour {
         match event {
             Ok(event) => self.connection_events.push_front(ConnectionEvent {
                 peer_id,
-                connection,
+                _connection: connection,
                 event,
             }),
             Err(error) => self.connection_errors.push_front(ConnectionError {
@@ -304,7 +306,7 @@ impl NetworkBehaviour for Behaviour {
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,
-        params: &mut impl libp2p::swarm::PollParameters,
+        _params: &mut impl libp2p::swarm::PollParameters,
     ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::OutEvent, libp2p::swarm::THandlerInEvent<Self>>>
     {
         {

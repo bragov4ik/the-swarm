@@ -21,7 +21,7 @@ impl State for () {
 pub struct ModuleChannelServer<M: Module> {
     pub input: mpsc::Receiver<M::InEvent>,
     pub output: mpsc::Sender<M::OutEvent>,
-    state: Option<Arc<Mutex<M::SharedState>>>,
+    pub state: Option<Arc<Mutex<M::SharedState>>>,
     pub shutdown: CancellationToken,
 }
 

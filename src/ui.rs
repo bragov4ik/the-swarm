@@ -1,4 +1,4 @@
-use easy_repl::{command, validator, CommandStatus, Repl};
+use easy_repl::{validator, CommandStatus, Repl};
 use tokio::sync::mpsc::{self, Sender};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -7,7 +7,7 @@ use crate::{
     behaviour::{self, InEvent},
     io::{read_input, InputData, InputProgram},
     module::ModuleChannelClient,
-    types::{Data, Vid},
+    types::Vid,
 };
 
 async fn print_responses(mut output: mpsc::Receiver<behaviour::OutEvent>) {
