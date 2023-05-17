@@ -13,7 +13,7 @@ use std::error::Error;
 use std::time::Duration;
 
 use crate::consensus::graph::{EventPayload, GraphWrapper};
-use crate::data_memory::distributed_simple::{DistributedDataMemory, MemoryBus};
+use crate::data_memory::{DistributedDataMemory, MemoryBus};
 use crate::instruction_storage::InstructionMemory;
 use crate::module::ModuleChannelServer;
 use crate::processor::single_threaded::ShardProcessor;

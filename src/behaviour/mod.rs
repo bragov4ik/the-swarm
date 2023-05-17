@@ -28,7 +28,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::{
     channel_log_send,
     consensus::{self, Transaction},
-    data_memory::distributed_simple,
+    data_memory,
     handler::{self, Connection, ConnectionReceived},
     instruction_storage,
     processor::{
@@ -62,6 +62,7 @@ mod module {
     use libp2p::PeerId;
 
     use crate::{
+        data_memory,
         processor::Instructions,
         types::{Data, Sid, Vid},
     };
@@ -88,7 +89,7 @@ mod module {
     pub enum OutEvent {
         // TODO: add hash?
         ScheduleOk,
-        GetResponse(Result<(Vid, Data), crate::data_memory::distributed_simple::RecollectionError>),
+        GetResponse(Result<(Vid, Data), data_memory::RecollectionError>),
         PutConfirmed(Vid),
         ListStoredResponse(Vec<(Vid, HashMap<Sid, PeerId>)>),
         StorageInitialized,
@@ -118,7 +119,7 @@ pub struct Behaviour {
     // todo: do some wrapper that'll check for timeouts and stuff. maybe also match request-response
     consensus: ModuleChannelClient<consensus::graph::Module>,
     instruction_memory: ModuleChannelClient<instruction_storage::Module>,
-    data_memory: ModuleChannelClient<distributed_simple::Module>,
+    data_memory: ModuleChannelClient<data_memory::Module>,
     processor: ModuleChannelClient<single_threaded::Module>,
 
     // random gossip
@@ -150,7 +151,7 @@ impl Behaviour {
         user_interaction: ModuleChannelServer<module::Module>,
         consensus: ModuleChannelClient<consensus::graph::Module>,
         instruction_memory: ModuleChannelClient<instruction_storage::Module>,
-        data_memory: ModuleChannelClient<distributed_simple::Module>,
+        data_memory: ModuleChannelClient<data_memory::Module>,
         processor: ModuleChannelClient<single_threaded::Module>,
     ) -> Self {
         Self {
@@ -346,7 +347,7 @@ impl NetworkBehaviour for Behaviour {
                         ConnectionReceived::Request(request) => {
                             match request.clone() {
                                 protocol::Request::ServeShard((data_id, shard_id)) => {
-                                    let event = distributed_simple::InEvent::ServeShardRequest((
+                                    let event = data_memory::InEvent::ServeShardRequest((
                                         data_id, shard_id,
                                     ));
                                     let send_future = self.data_memory.input.send(event.clone());
@@ -358,7 +359,7 @@ impl NetworkBehaviour for Behaviour {
                                     }
                                 }
                                 protocol::Request::GetShard((data_id, shard_id)) => {
-                                    let event = distributed_simple::InEvent::AssignedRequest((
+                                    let event = data_memory::InEvent::AssignedRequest((
                                         data_id, shard_id,
                                     ));
                                     let send_future = self.data_memory.input.send(event.clone());
@@ -378,7 +379,7 @@ impl NetworkBehaviour for Behaviour {
                         }
                         ConnectionReceived::Response(protocol::Request::ServeShard(full_shard_id), protocol::Response::ServeShard(shard)) => {
                             let send_future = self.data_memory.input.send(
-                                distributed_simple::InEvent::ServeShardResponse(full_shard_id.clone(), shard)
+                                data_memory::InEvent::ServeShardResponse(full_shard_id.clone(), shard)
                             );
                             pin_mut!(send_future);
                             match send_future.poll(cx) {
@@ -391,7 +392,7 @@ impl NetworkBehaviour for Behaviour {
                             match shard {
                                 Some(shard) => {
                                     let send_future = self.data_memory.input.send(
-                                        distributed_simple::InEvent::AssignedResponse { full_shard_id: full_shard_id.clone(), shard }
+                                        data_memory::InEvent::AssignedResponse { full_shard_id: full_shard_id.clone(), shard }
                                     );
                                     pin_mut!(send_future);
                                     match send_future.poll(cx) {
@@ -461,7 +462,7 @@ impl NetworkBehaviour for Behaviour {
 
         match self.data_memory.output.poll_recv(cx) {
             Poll::Ready(Some(event)) => match event {
-                distributed_simple::OutEvent::ServeShardRequest(full_shard_id, location) => {
+                data_memory::OutEvent::ServeShardRequest(full_shard_id, location) => {
                     // todo: separate workflow for `from` == `local_peer_id`
                     return Poll::Ready(ToSwarm::NotifyHandler {
                         peer_id: location,
@@ -471,7 +472,7 @@ impl NetworkBehaviour for Behaviour {
                         ),
                     });
                 },
-                distributed_simple::OutEvent::ServeShardResponse(full_shard_id, shard) => {
+                data_memory::OutEvent::ServeShardResponse(full_shard_id, shard) => {
                     let waiting_peers = self.currently_processed_requests.remove(
                         &protocol::Request::ServeShard(full_shard_id)
                     ).unwrap_or_default();
@@ -486,7 +487,7 @@ impl NetworkBehaviour for Behaviour {
                         return Poll::Ready(next_notification);
                     };
                 },
-                distributed_simple::OutEvent::AssignedStoreSuccess(full_shard_id) => {
+                data_memory::OutEvent::AssignedStoreSuccess(full_shard_id) => {
                     let event = consensus::graph::InEvent::ScheduleTx(Transaction::Stored(full_shard_id.0, full_shard_id.1));
                     let send_future = self.consensus.input.send(event.clone());
                     pin_mut!(send_future);
@@ -496,7 +497,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on storing shard. for now fail fast to see this."),
                     }
                 }
-                distributed_simple::OutEvent::AssignedResponse(full_shard_id, shard) => {
+                data_memory::OutEvent::AssignedResponse(full_shard_id, shard) => {
                     let waiting_peers = self.currently_processed_requests.remove(
                         &protocol::Request::GetShard(full_shard_id)
                     ).unwrap_or_default();
@@ -511,7 +512,7 @@ impl NetworkBehaviour for Behaviour {
                         return Poll::Ready(next_notification);
                     };
                 },
-                distributed_simple::OutEvent::DistributionSuccess(data_id) => {
+                data_memory::OutEvent::DistributionSuccess(data_id) => {
                     let event = module::OutEvent::PutConfirmed(data_id);
                     let send_future = self.user_interaction.output.send(event.clone());
                     pin_mut!(send_future);
@@ -521,7 +522,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
                     }
                 },
-                distributed_simple::OutEvent::ListDistributed(list) => {
+                data_memory::OutEvent::ListDistributed(list) => {
                     let send_future = self.user_interaction.output.send(
                         module::OutEvent::ListStoredResponse(list)
                     );
@@ -532,7 +533,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
                     }
                 },
-                distributed_simple::OutEvent::PreparedServiceResponse(data_id) => {
+                data_memory::OutEvent::PreparedServiceResponse(data_id) => {
                     let event = consensus::graph::InEvent::ScheduleTx(Transaction::StorageRequest { address: data_id });
                     let send_future = self.consensus.input.send(event.clone());
                     pin_mut!(send_future);
@@ -542,7 +543,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
                     }
                 },
-                distributed_simple::OutEvent::AssignedRequest(full_shard_id, location) => {
+                data_memory::OutEvent::AssignedRequest(full_shard_id, location) => {
                     return Poll::Ready(ToSwarm::NotifyHandler {
                         peer_id: location,
                         handler: NotifyHandler::Any,
@@ -553,7 +554,7 @@ impl NetworkBehaviour for Behaviour {
                         ),
                     });
                 }
-                distributed_simple::OutEvent::RecollectResponse(response) => {
+                data_memory::OutEvent::RecollectResponse(response) => {
                     let send_future = self.user_interaction.output.send(
                         module::OutEvent::GetResponse(response)
                     );
@@ -564,7 +565,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
                     }
                 },
-                distributed_simple::OutEvent::Initialized => {
+                data_memory::OutEvent::Initialized => {
                     let send_future = self.user_interaction.output.send(
                         module::OutEvent::StorageInitialized
                     );
@@ -604,7 +605,7 @@ impl NetworkBehaviour for Behaviour {
                     }
                 },
                 InEvent::Get(data_id) => {
-                    let event = distributed_simple::InEvent::RecollectRequest(data_id);
+                    let event = data_memory::InEvent::RecollectRequest(data_id);
                     let send_future = self.data_memory.input.send(event.clone());
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
@@ -615,7 +616,7 @@ impl NetworkBehaviour for Behaviour {
                 },
                 InEvent::Put(data_id, data) => {
                     let send_future = self.data_memory.input.send(
-                        distributed_simple::InEvent::PrepareServiceRequest { data_id: data_id.clone(), data }
+                        data_memory::InEvent::PrepareServiceRequest { data_id: data_id.clone(), data }
                     );
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
@@ -626,7 +627,7 @@ impl NetworkBehaviour for Behaviour {
                 },
                 InEvent::ListStored => {
                     let send_future = self.data_memory.input.send(
-                        distributed_simple::InEvent::ListDistributed
+                        data_memory::InEvent::ListDistributed
                     );
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
@@ -731,8 +732,7 @@ impl NetworkBehaviour for Behaviour {
                     // track data locations, pull assigned shards
                     match tx {
                         Transaction::StorageRequest { address } => {
-                            let event =
-                                distributed_simple::InEvent::StorageRequestTx(address, from);
+                            let event = data_memory::InEvent::StorageRequestTx(address, from);
                             let send_future = self.data_memory.input.send(event.clone());
                             pin_mut!(send_future);
                             match send_future.poll(cx) {
@@ -743,7 +743,7 @@ impl NetworkBehaviour for Behaviour {
                         }
                         // take a note that `(data_id, shard_id)` is stored at `location`
                         Transaction::Stored(data_id, shard_id) => {
-                            let event = distributed_simple::InEvent::StoreConfirmed {
+                            let event = data_memory::InEvent::StoreConfirmed {
                                 full_shard_id: (data_id, shard_id),
                                 location: from,
                             };
@@ -792,7 +792,7 @@ impl NetworkBehaviour for Behaviour {
                             let send_future = self
                                 .data_memory
                                 .input
-                                .send(distributed_simple::InEvent::Initialize { distribution });
+                                .send(data_memory::InEvent::Initialize { distribution });
                             pin_mut!(send_future);
                             match send_future.poll(cx) {
                                 Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", "Initialize"),

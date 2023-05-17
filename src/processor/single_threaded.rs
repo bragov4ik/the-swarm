@@ -67,8 +67,8 @@ impl MemoryBus {
     }
 
     #[allow(unused)]
-    pub fn channel(buffer: usize) -> (crate::data_memory::distributed_simple::MemoryBus, Self) {
-        crate::data_memory::distributed_simple::MemoryBus::channel(buffer)
+    pub fn channel(buffer: usize) -> (crate::data_memory::MemoryBus, Self) {
+        crate::data_memory::MemoryBus::channel(buffer)
     }
 }
 
