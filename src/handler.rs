@@ -284,7 +284,12 @@ impl ConnectionHandler for Connection {
     }
 
     fn on_behaviour_event(&mut self, event: Self::InEvent) {
-        trace!("Received event {:?}", event);
+        match &event {
+            IncomingEvent::SendPrimary(Primary::Simple(_)) => {
+                trace!("Received behaviour event: SendResponse(Simple(GossipGraph))")
+            }
+            _ => trace!("Received event {:?}", event),
+        }
         match event {
             IncomingEvent::SendResponse(r) => {
                 match &self.response_queue {
@@ -360,7 +365,14 @@ impl ConnectionHandler for Connection {
                                 Some(ConnectionReceived::Request(r))
                             }
                             Message::Primary(Primary::Simple(s)) => {
-                                debug!("Received simple {:?}", s);
+                                // for future just in case
+                                #[allow(irrefutable_let_patterns)]
+                                if let Simple::GossipGraph(_) = s {
+                                    debug!("Received Simple::GossipGraph");
+                                }
+                                else {
+                                    debug!("Received simple {:?}", s);
+                                }
                                 // Wait for the next Primary
                                 self.incoming = Some(IncomingState::idle_receive(stream));
                                 Some(ConnectionReceived::Simple(s))

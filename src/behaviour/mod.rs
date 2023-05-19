@@ -505,9 +505,9 @@ impl NetworkBehaviour for Behaviour {
                 },
                 data_memory::OutEvent::ServeShardResponse(full_shard_id, shard) => {
                     let waiting_peers = self.currently_processed_requests.remove(
-                        &protocol::Request::ServeShard(full_shard_id)
+                        &protocol::Request::ServeShard(full_shard_id.clone())
                     ).unwrap_or_default();
-                    channel_log_send!("network.response", format!("ServeShard({:?}); to: {:?}", &full_shard_id, waiting_peers[..]));
+                    channel_log_send!("network.response", format!("ServeShard({:?}); to: {:?}", &full_shard_id, waiting_peers));
                     let mut new_notifications = waiting_peers.into_iter()
                         .map(|peer_id| ToSwarm::NotifyHandler {
                             peer_id,

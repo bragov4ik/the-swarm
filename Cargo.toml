@@ -15,9 +15,10 @@ libp2p = { version = "0.51.2", features = ["serde", "tcp", "mdns", "tokio", "asy
 rust-hashgraph = { path = "../rust-hashgraph" }
 rand = "0.8.5"
 thiserror = "1.0"
-tokio = { version = "1.27.0", features = ["full"] }
+tokio = { version = "1.27.0", features = ["full", "tracing"] }
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
+console-subscriber = "0.1.9"
 void = "1.0.2"
 serde = "1.0.159"
 serde_json = "1.0.95"
@@ -31,3 +32,4 @@ anyhow = "1.0.71"
 
 [features]
 gen-input = []
+console = []

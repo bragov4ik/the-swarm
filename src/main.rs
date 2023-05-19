@@ -95,7 +95,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // let format = tracing_subscriber::fmt::format();
+    #[cfg(not(feature = "console"))]
     tracing_subscriber::fmt::init();
+    #[cfg(feature = "console")]
+    console_subscriber::init();
 
     let args = Args::parse();
 
