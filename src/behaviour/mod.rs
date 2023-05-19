@@ -26,7 +26,7 @@ use tokio::{
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{
-    channel_log_send,
+    channel_log_recv, channel_log_send,
     consensus::{self, Transaction},
     data_memory,
     handler::{self, Connection, ConnectionReceived},
@@ -359,9 +359,8 @@ impl NetworkBehaviour for Behaviour {
                                     }
                                 }
                                 protocol::Request::GetShard((data_id, shard_id)) => {
-                                    let event = data_memory::InEvent::AssignedRequest((
-                                        data_id, shard_id,
-                                    ));
+                                    let event =
+                                        data_memory::InEvent::AssignedRequest((data_id, shard_id));
                                     let send_future = self.data_memory.input.send(event.clone());
                                     pin_mut!(send_future);
                                     match send_future.poll(cx) {
@@ -371,15 +370,26 @@ impl NetworkBehaviour for Behaviour {
                                     }
                                 }
                             }
+                            channel_log_recv!("network.request", format!("{:?}", &request));
                             let peers_waiting = self
                                 .currently_processed_requests
                                 .entry(request)
                                 .or_default();
                             peers_waiting.push(s.peer_id);
                         }
-                        ConnectionReceived::Response(protocol::Request::ServeShard(full_shard_id), protocol::Response::ServeShard(shard)) => {
+                        ConnectionReceived::Response(
+                            protocol::Request::ServeShard(full_shard_id),
+                            protocol::Response::ServeShard(shard),
+                        ) => {
+                            channel_log_recv!(
+                                "network.response",
+                                format!("ServeShard({:?})", &full_shard_id)
+                            );
                             let send_future = self.data_memory.input.send(
-                                data_memory::InEvent::ServeShardResponse(full_shard_id.clone(), shard)
+                                data_memory::InEvent::ServeShardResponse(
+                                    full_shard_id.clone(),
+                                    shard,
+                                ),
                             );
                             pin_mut!(send_future);
                             match send_future.poll(cx) {
@@ -387,8 +397,19 @@ impl NetworkBehaviour for Behaviour {
                                 Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
                                 Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
                             };
-                        },
-                        ConnectionReceived::Response(protocol::Request::GetShard(full_shard_id), protocol::Response::GetShard(shard)) => {
+                        }
+                        ConnectionReceived::Response(
+                            protocol::Request::GetShard(full_shard_id),
+                            protocol::Response::GetShard(shard),
+                        ) => {
+                            channel_log_recv!(
+                                "network.response",
+                                format!(
+                                    "GetShard({:?}, is_some: {:?})",
+                                    &full_shard_id,
+                                    shard.is_some()
+                                )
+                            );
                             match shard {
                                 Some(shard) => {
                                     let send_future = self.data_memory.input.send(
@@ -403,20 +424,29 @@ impl NetworkBehaviour for Behaviour {
                                 },
                                 None => warn!("Peer that announced that it stores assigned shard doesn't have it. Misbehaviour??"),
                             }
-                        },
-                        ConnectionReceived::Response( _, _ ) => warn!("Unmatched response, need to recheck what to do in this case."),
+                        }
+                        ConnectionReceived::Response(_, _) => {
+                            warn!("Unmatched response, need to recheck what to do in this case.")
+                        }
                         ConnectionReceived::Simple(protocol::Simple::GossipGraph(sync)) => {
-                            debug!("Received sync from {}", s.peer_id);
-                            let send_future = self.consensus.input.send(
-                                consensus::graph::InEvent::ApplySync { from: s.peer_id, sync }
+                            channel_log_recv!(
+                                "network.simple",
+                                format!("GossipGraph(from: {:?})", &s.peer_id)
                             );
+                            let send_future =
+                                self.consensus
+                                    .input
+                                    .send(consensus::graph::InEvent::ApplySync {
+                                        from: s.peer_id,
+                                        sync,
+                                    });
                             pin_mut!(send_future);
                             match send_future.poll(cx) {
                                 Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", format!("ApplySync(from: {})", s.peer_id)),
                                 Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                                 Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will apply received sync. for now fail fast to see this."),
                             }
-                        },
+                        }
                     }
                     continue;
                 }
@@ -464,6 +494,7 @@ impl NetworkBehaviour for Behaviour {
             Poll::Ready(Some(event)) => match event {
                 data_memory::OutEvent::ServeShardRequest(full_shard_id, location) => {
                     // todo: separate workflow for `from` == `local_peer_id`
+                    channel_log_send!("network.request", format!("ServeShard({:?})", &full_shard_id));
                     return Poll::Ready(ToSwarm::NotifyHandler {
                         peer_id: location,
                         handler: NotifyHandler::Any,
@@ -476,6 +507,7 @@ impl NetworkBehaviour for Behaviour {
                     let waiting_peers = self.currently_processed_requests.remove(
                         &protocol::Request::ServeShard(full_shard_id)
                     ).unwrap_or_default();
+                    channel_log_send!("network.response", format!("ServeShard({:?}); to: {:?}", &full_shard_id, waiting_peers[..]));
                     let mut new_notifications = waiting_peers.into_iter()
                         .map(|peer_id| ToSwarm::NotifyHandler {
                             peer_id,
