@@ -11,6 +11,7 @@ bincode = "1.3.3"
 clap = { version = "4.2.1", features = ["derive"] }
 futures = "0.3"
 libp2p = { version = "0.51.2", features = ["serde", "tcp", "mdns", "tokio", "async-std", "macros", "websocket", "noise", "mplex", "yamux", "dns"] }
+libp2p-request-response = "0.24.1"
 # Add integration of actual consensus
 rust-hashgraph = { path = "../rust-hashgraph" }
 rand = "0.8.5"

@@ -2293,6 +2293,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "libp2p-request-response"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ffdb374267d42dc5ed5bc53f6e601d4a64ac5964779c6e40bb9e4f14c1e30d5"
+dependencies = [
+ "async-trait",
+ "futures",
+ "instant",
+ "libp2p-core",
+ "libp2p-identity",
+ "libp2p-swarm",
+ "rand 0.8.5",
+ "smallvec",
+]
+
+[[package]]
 name = "libp2p-swarm"
 version = "0.42.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4118,6 +4134,7 @@ dependencies = [
  "easy-repl",
  "futures",
  "libp2p",
+ "libp2p-request-response",
  "pin-project-lite 0.2.9",
  "rand 0.8.5",
  "reed-solomon-erasure",

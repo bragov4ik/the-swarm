@@ -28,14 +28,12 @@ use tracing::{debug, error, info, trace, warn};
 use crate::{
     channel_log_recv, channel_log_send,
     consensus::{self, Transaction},
-    data_memory,
-    handler::{self, Connection, ConnectionReceived},
-    instruction_storage,
+    data_memory, handler, instruction_storage,
     processor::{
         single_threaded::{self},
         Program,
     },
-    protocol,
+    protocol::{self, request_response::SwarmRequestResponse},
 };
 use crate::{
     module::{ModuleChannelClient, ModuleChannelServer},
@@ -96,19 +94,23 @@ mod module {
     }
 }
 
+#[derive(Debug)]
 struct ConnectionEvent {
     peer_id: libp2p::PeerId,
     _connection: libp2p::swarm::ConnectionId,
-    event: crate::handler::ConnectionReceived,
+    event: handler::ToSwarmEvent,
 }
 
+#[derive(Debug)]
 struct ConnectionError {
     peer_id: libp2p::PeerId,
     connection: libp2p::swarm::ConnectionId,
-    error: crate::handler::ConnectionError,
+    error: handler::ToSwarmError,
 }
 
 pub struct Behaviour {
+    inner_request_response: libp2p_request_response::Behaviour<SwarmRequestResponse>,
+
     // might be useful, leave it
     #[allow(unused)]
     local_peer_id: PeerId,
@@ -215,29 +217,35 @@ macro_rules! cant_operate_error_return {
 }
 
 impl NetworkBehaviour for Behaviour {
-    type ConnectionHandler = Connection;
+    // type ConnectionHandler = handler::SwarmComputerProtocol;
     type OutEvent = ToSwarmEvent;
 
     fn handle_established_inbound_connection(
         &mut self,
-        _connection_id: libp2p::swarm::ConnectionId,
-        _peer: PeerId,
-        _local_addr: &libp2p::Multiaddr,
-        _remote_addr: &libp2p::Multiaddr,
+        connection_id: libp2p::swarm::ConnectionId,
+        peer: PeerId,
+        local_addr: &libp2p::Multiaddr,
+        remote_addr: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         debug!("Creating new inbound connection handler");
-        Ok(Connection::new(10))
+        let inner_handle = self
+            .inner_request_response
+            .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)?;
+        Ok(handler::new(inner_handle))
     }
 
     fn handle_established_outbound_connection(
         &mut self,
-        _connection_id: libp2p::swarm::ConnectionId,
-        _peer: PeerId,
-        _addr: &libp2p::Multiaddr,
-        _role_override: libp2p::core::Endpoint,
+        connection_id: libp2p::swarm::ConnectionId,
+        peer: PeerId,
+        addr: &libp2p::Multiaddr,
+        role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         debug!("Creating new out bound connection handler");
-        Ok(Connection::new(10))
+        let inner_handle = self
+            .inner_request_response
+            .handle_established_outbound_connection(connection_id, peer, addr, role_override)?;
+        Ok(handler::new(inner_handle))
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
