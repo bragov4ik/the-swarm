@@ -559,9 +559,8 @@ impl NetworkBehaviour for Behaviour {
                         return Poll::Ready(other);
                     }
                 },
-                Poll::Pending => todo!(),
+                Poll::Pending => (),
             }
-
             break;
         }
 
