@@ -16,6 +16,7 @@ use libp2p::{
     },
     PeerId,
 };
+use libp2p_request_response::RequestId;
 use rand::Rng;
 
 use thiserror::Error;
@@ -33,7 +34,12 @@ use crate::{
         single_threaded::{self},
         Program,
     },
-    protocol::{self, request_response::SwarmRequestResponse},
+    protocol::{
+        self,
+        one_shot::{InnerMessage, SimpleMessage},
+        request_response::SwarmRequestResponse,
+        Request, Response,
+    },
 };
 use crate::{
     module::{ModuleChannelClient, ModuleChannelServer},
@@ -94,18 +100,10 @@ mod module {
     }
 }
 
-#[derive(Debug)]
-struct ConnectionEvent {
-    peer_id: libp2p::PeerId,
-    _connection: libp2p::swarm::ConnectionId,
-    event: handler::ToSwarmEvent,
-}
-
-#[derive(Debug)]
-struct ConnectionError {
+struct ConnectionEventWrapper<E> {
     peer_id: libp2p::PeerId,
     connection: libp2p::swarm::ConnectionId,
-    error: handler::ToSwarmError,
+    event: E,
 }
 
 pub struct Behaviour {
@@ -131,16 +129,13 @@ pub struct Behaviour {
     consensus_gossip_timeout: Duration,
 
     // connection stuff
-    connection_events: VecDeque<ConnectionEvent>,
-    connection_errors: VecDeque<ConnectionError>,
-
-    currently_processed_requests: HashMap<protocol::Request, Vec<PeerId>>,
-    to_notify: Vec<
-        libp2p::swarm::ToSwarm<
-            <Self as NetworkBehaviour>::OutEvent,
-            libp2p::swarm::THandlerInEvent<Self>,
-        >,
+    oneshot_events: VecDeque<ConnectionEventWrapper<InnerMessage>>,
+    request_response_events: VecDeque<
+        ConnectionEventWrapper<libp2p::request_response::handler::Event<SwarmRequestResponse>>,
     >,
+    pending_response: HashMap<RequestId, Request>,
+    processed_requests:
+        HashMap<Request, Vec<(RequestId, futures::channel::oneshot::Sender<Response>)>>,
 
     // notification to poll() to wake up and try to do some progress
     state_updated: Arc<Notify>,
@@ -156,6 +151,12 @@ impl Behaviour {
         data_memory: ModuleChannelClient<data_memory::Module>,
         processor: ModuleChannelClient<single_threaded::Module>,
     ) -> Self {
+        let protocols = std::iter::once((
+            protocol::versions::RequestResponseVersion::V1,
+            libp2p_request_response::ProtocolSupport::Full,
+        ));
+        let cfg = libp2p_request_response::Config::default();
+        // cfg.set_request_timeout(config.timeout);
         Self {
             local_peer_id,
             discovered_peers: VecDeque::new(),
@@ -168,11 +169,16 @@ impl Behaviour {
             rng: rand::thread_rng(),
             consensus_gossip_timer: Box::pin(sleep(consensus_gossip_timeout)),
             consensus_gossip_timeout,
-            connection_events: VecDeque::new(),
-            connection_errors: VecDeque::new(),
-            currently_processed_requests: HashMap::new(),
-            to_notify: Vec::new(),
+            oneshot_events: VecDeque::new(),
+            request_response_events: VecDeque::new(),
+            pending_response: HashMap::new(),
+            processed_requests: HashMap::new(),
             state_updated: Arc::new(Notify::new()),
+            inner_request_response: libp2p_request_response::Behaviour::new(
+                SwarmRequestResponse,
+                protocols,
+                cfg,
+            ),
         }
     }
 
@@ -203,6 +209,25 @@ impl Behaviour {
                 .expect("Shouldn't have skipped more than `len-1` elements."),
         )
     }
+
+    fn send_request(&mut self, request: Request, peer: &PeerId) {
+        channel_log_send!("network.request", format!("{:?}", request));
+        let request_id = self
+            .inner_request_response
+            .send_request(peer, request.clone());
+        self.pending_response.insert(request_id, request);
+        // todo: notify that state of inner changed
+    }
+
+    fn respond_to(&mut self, request: &Request, response: Response) {
+        let waiting_for_response = self.processed_requests.remove(&request).unwrap_or_default();
+        for (_, sender) in waiting_for_response {
+            match sender.send(response.clone()) {
+                Ok(()) => channel_log_send!("network.response", format!("{:?}", response)),
+                Err(e) => warn!("Error responding to a request: {:?}", e),
+            }
+        }
+    }
 }
 
 macro_rules! cant_operate_error_return {
@@ -217,7 +242,7 @@ macro_rules! cant_operate_error_return {
 }
 
 impl NetworkBehaviour for Behaviour {
-    // type ConnectionHandler = handler::SwarmComputerProtocol;
+    type ConnectionHandler = handler::SwarmComputerProtocol;
     type OutEvent = ToSwarmEvent;
 
     fn handle_established_inbound_connection(
@@ -298,16 +323,20 @@ impl NetworkBehaviour for Behaviour {
         event: libp2p::swarm::THandlerOutEvent<Self>,
     ) {
         match event {
-            Ok(event) => self.connection_events.push_front(ConnectionEvent {
-                peer_id,
-                _connection: connection,
-                event,
-            }),
-            Err(error) => self.connection_errors.push_front(ConnectionError {
-                peer_id,
-                connection,
-                error,
-            }),
+            libp2p::swarm::derive_prelude::Either::Left(event) => {
+                self.oneshot_events.push_front(ConnectionEventWrapper {
+                    peer_id,
+                    connection,
+                    event,
+                })
+            }
+            libp2p::swarm::derive_prelude::Either::Right(event) => self
+                .request_response_events
+                .push_front(ConnectionEventWrapper {
+                    peer_id,
+                    connection,
+                    event,
+                }),
         }
         self.state_updated.notify_one();
     }
@@ -348,95 +377,11 @@ impl NetworkBehaviour for Behaviour {
             // Maybe break on Pending?
             let _ = state_updated_notification.poll(cx);
 
-            match self.connection_events.pop_back() {
+            match self.oneshot_events.pop_back() {
                 // serve shard, recieve shard, recieve gossip,
                 Some(s) => {
                     match s.event {
-                        ConnectionReceived::Request(request) => {
-                            match request.clone() {
-                                protocol::Request::ServeShard((data_id, shard_id)) => {
-                                    let event = data_memory::InEvent::ServeShardRequest((
-                                        data_id, shard_id,
-                                    ));
-                                    let send_future = self.data_memory.input.send(event.clone());
-                                    pin_mut!(send_future);
-                                    match send_future.poll(cx) {
-                                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
-                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will ignore some peer's request, which is unacceptable (?)."),
-                                    }
-                                }
-                                protocol::Request::GetShard((data_id, shard_id)) => {
-                                    let event =
-                                        data_memory::InEvent::AssignedRequest((data_id, shard_id));
-                                    let send_future = self.data_memory.input.send(event.clone());
-                                    pin_mut!(send_future);
-                                    match send_future.poll(cx) {
-                                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
-                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will ignore some peer's request, which is unacceptable (?)."),
-                                    }
-                                }
-                            }
-                            channel_log_recv!("network.request", format!("{:?}", &request));
-                            let peers_waiting = self
-                                .currently_processed_requests
-                                .entry(request)
-                                .or_default();
-                            peers_waiting.push(s.peer_id);
-                        }
-                        ConnectionReceived::Response(
-                            protocol::Request::ServeShard(full_shard_id),
-                            protocol::Response::ServeShard(shard),
-                        ) => {
-                            channel_log_recv!(
-                                "network.response",
-                                format!("ServeShard({:?})", &full_shard_id)
-                            );
-                            let send_future = self.data_memory.input.send(
-                                data_memory::InEvent::ServeShardResponse(
-                                    full_shard_id.clone(),
-                                    shard,
-                                ),
-                            );
-                            pin_mut!(send_future);
-                            match send_future.poll(cx) {
-                                Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("ServeShardResponse({:?},_)", full_shard_id)),
-                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
-                            };
-                        }
-                        ConnectionReceived::Response(
-                            protocol::Request::GetShard(full_shard_id),
-                            protocol::Response::GetShard(shard),
-                        ) => {
-                            channel_log_recv!(
-                                "network.response",
-                                format!(
-                                    "GetShard({:?}, is_some: {:?})",
-                                    &full_shard_id,
-                                    shard.is_some()
-                                )
-                            );
-                            match shard {
-                                Some(shard) => {
-                                    let send_future = self.data_memory.input.send(
-                                        data_memory::InEvent::AssignedResponse { full_shard_id: full_shard_id.clone(), shard }
-                                    );
-                                    pin_mut!(send_future);
-                                    match send_future.poll(cx) {
-                                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("AssignedResponse({:?},_)", full_shard_id)),
-                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
-                                    }
-                                },
-                                None => warn!("Peer that announced that it stores assigned shard doesn't have it. Misbehaviour??"),
-                            }
-                        }
-                        ConnectionReceived::Response(_, _) => {
-                            warn!("Unmatched response, need to recheck what to do in this case.")
-                        }
-                        ConnectionReceived::Simple(protocol::Simple::GossipGraph(sync)) => {
+                        InnerMessage::Rx(SimpleMessage(protocol::Simple::GossipGraph(sync))) => {
                             channel_log_recv!(
                                 "network.simple",
                                 format!("GossipGraph(from: {:?})", &s.peer_id)
@@ -455,46 +400,127 @@ impl NetworkBehaviour for Behaviour {
                                 Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will apply received sync. for now fail fast to see this."),
                             }
                         }
+                        InnerMessage::Sent => trace!("Sent simple successfully"),
                     }
                     continue;
                 }
                 None => (),
             }
 
-            match self.connection_errors.pop_back() {
-                // serve shard, recieve shard, recieve gossip,
-                Some(e) => {
-                    match e.error {
-                        handler::ConnectionError::PeerUnsupported => {
+            match self.request_response_events.pop_back() {
+                Some(connection_event) => {
+                    match connection_event.event {
+                        libp2p_request_response::handler::Event::Request { request_id, request, sender } => {
+                            match request.clone() {
+                                protocol::Request::GetShard((data_id, shard_id)) => {
+                                    let event =
+                                        data_memory::InEvent::AssignedRequest((data_id, shard_id));
+                                    let send_future = self.data_memory.input.send(event.clone());
+                                    pin_mut!(send_future);
+                                    match send_future.poll(cx) {
+                                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
+                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will ignore some peer's request, which is unacceptable (?)."),
+                                    }
+                                }
+                                protocol::Request::ServeShard((data_id, shard_id)) => {
+                                    let event = data_memory::InEvent::ServeShardRequest((
+                                        data_id, shard_id,
+                                    ));
+                                    let send_future = self.data_memory.input.send(event.clone());
+                                    pin_mut!(send_future);
+                                    match send_future.poll(cx) {
+                                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
+                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will ignore some peer's request, which is unacceptable (?)."),
+                                    }
+                                }
+                            }
+                            channel_log_recv!("network.request", format!("{:?}", &request));
+                            let response_handlers = self.processed_requests
+                                .entry(request).or_default();
+                            response_handlers.push((request_id, sender));
+                        },
+                        libp2p_request_response::handler::Event::Response { request_id, response } => {
+                            match self.pending_response.get(&request_id) {
+                                Some(request) => {
+                                    match (request, response) {
+                                        (
+                                            protocol::Request::GetShard(full_shard_id),
+                                            protocol::Response::GetShard(shard),
+                                        ) => {
+                                            channel_log_recv!(
+                                                "network.response",
+                                                format!(
+                                                    "GetShard({:?}, is_some: {:?})",
+                                                    &full_shard_id,
+                                                    shard.is_some()
+                                                )
+                                            );
+                                            match shard {
+                                                Some(shard) => {
+                                                    let send_future = self.data_memory.input.send(
+                                                        data_memory::InEvent::AssignedResponse { full_shard_id: full_shard_id.clone(), shard }
+                                                    );
+                                                    pin_mut!(send_future);
+                                                    match send_future.poll(cx) {
+                                                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("AssignedResponse({:?},_)", full_shard_id)),
+                                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
+                                                    }
+                                                },
+                                                None => warn!("Peer that announced that it stores assigned shard doesn't have it. Misbehaviour??"),
+                                            }
+                                        },
+                                        (
+                                            protocol::Request::ServeShard(full_shard_id),
+                                            protocol::Response::ServeShard(shard),
+                                        ) => {
+                                            channel_log_recv!(
+                                                "network.response",
+                                                format!("ServeShard({:?})", &full_shard_id)
+                                            );
+                                            let send_future = self.data_memory.input.send(
+                                                data_memory::InEvent::ServeShardResponse(
+                                                    full_shard_id.clone(),
+                                                    shard,
+                                                ),
+                                            );
+                                            pin_mut!(send_future);
+                                            match send_future.poll(cx) {
+                                                Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("ServeShardResponse({:?},_)", full_shard_id)),
+                                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                                Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
+                                            };
+                                        },
+                                        (request, response) => {
+                                            warn!("Response does not match request (id {})", request_id);
+                                            trace!("request: {:?}, response: {:?}", request, response);
+                                        }
+                                    }
+                                },
+                                None => warn!("Received response for unknown (or already fulfilled) request (id {})", request_id),
+                            }
+                        },
+                        libp2p_request_response::handler::Event::ResponseSent(id) => trace!("Sent request {} successfully", id),
+                        libp2p_request_response::handler::Event::ResponseOmission(id) => warn!("Response for request {} was omitted", id),
+                        // save stats mb in the future mb
+                        libp2p_request_response::handler::Event::OutboundTimeout(_) |
+                        libp2p_request_response::handler::Event::OutboundUnsupportedProtocols(_) |
+                        libp2p_request_response::handler::Event::InboundTimeout(_) |
+                        libp2p_request_response::handler::Event::InboundUnsupportedProtocols(_) => {
+                            warn!("{:?}", connection_event.event);
                             return Poll::Ready(ToSwarm::CloseConnection {
-                                peer_id: e.peer_id,
-                                connection: libp2p::swarm::CloseConnection::One(e.connection),
+                                peer_id: connection_event.peer_id,
+                                connection: libp2p::swarm::CloseConnection::One(connection_event.connection),
                             })
-                        }
-                        // save stats mb
-                        // logged in handler already; also counted there to close conneciton
-                        // on too many errors
-                        handler::ConnectionError::Timeout => {}
-                        // Fail fast
-                        handler::ConnectionError::Other(err) => {
-                            // Fail fast
-                            error!("Connection to {} returned error {:?}", e.peer_id, err);
-                            return Poll::Ready(ToSwarm::CloseConnection {
-                                peer_id: e.peer_id,
-                                connection: libp2p::swarm::CloseConnection::One(e.connection),
-                            });
-                        }
+                        },
                     }
-                    continue;
                 }
-
                 None => (),
             }
 
-            match self.to_notify.pop() {
-                Some(t) => return Poll::Ready(t),
-                None => (),
-            }
+            // todo: poll inner
             break;
         }
 
@@ -502,30 +528,13 @@ impl NetworkBehaviour for Behaviour {
             Poll::Ready(Some(event)) => match event {
                 data_memory::OutEvent::ServeShardRequest(full_shard_id, location) => {
                     // todo: separate workflow for `from` == `local_peer_id`
-                    channel_log_send!("network.request", format!("ServeShard({:?})", &full_shard_id));
-                    return Poll::Ready(ToSwarm::NotifyHandler {
-                        peer_id: location,
-                        handler: NotifyHandler::Any,
-                        event: handler::IncomingEvent::SendPrimary(
-                            protocol::Primary::Request(protocol::Request::ServeShard(full_shard_id)),
-                        ),
-                    });
+                    self.send_request(protocol::Request::ServeShard(full_shard_id), &location);
                 },
                 data_memory::OutEvent::ServeShardResponse(full_shard_id, shard) => {
-                    let waiting_peers = self.currently_processed_requests.remove(
-                        &protocol::Request::ServeShard(full_shard_id.clone())
-                    ).unwrap_or_default();
-                    channel_log_send!("network.response", format!("ServeShard({:?}); to: {:?}", &full_shard_id, waiting_peers));
-                    let mut new_notifications = waiting_peers.into_iter()
-                        .map(|peer_id| ToSwarm::NotifyHandler {
-                            peer_id,
-                            handler: NotifyHandler::Any,
-                            event: handler::IncomingEvent::SendResponse(protocol::Response::ServeShard(shard))
-                        });
-                    if let Some(next_notification) = new_notifications.next() {
-                        self.to_notify.extend(new_notifications);
-                        return Poll::Ready(next_notification);
-                    };
+                    self.respond_to(
+                        &protocol::Request::ServeShard(full_shard_id),
+                        protocol::Response::ServeShard(shard)
+                    )
                 },
                 data_memory::OutEvent::AssignedStoreSuccess(full_shard_id) => {
                     let event = consensus::graph::InEvent::ScheduleTx(Transaction::Stored(full_shard_id.0, full_shard_id.1));
@@ -538,19 +547,10 @@ impl NetworkBehaviour for Behaviour {
                     }
                 }
                 data_memory::OutEvent::AssignedResponse(full_shard_id, shard) => {
-                    let waiting_peers = self.currently_processed_requests.remove(
-                        &protocol::Request::GetShard(full_shard_id)
-                    ).unwrap_or_default();
-                    let mut new_notifications = waiting_peers.into_iter()
-                        .map(|peer_id| ToSwarm::NotifyHandler {
-                            peer_id,
-                            handler: NotifyHandler::Any,
-                            event: handler::IncomingEvent::SendResponse(protocol::Response::GetShard(shard))
-                        });
-                    if let Some(next_notification) = new_notifications.next() {
-                        self.to_notify.extend(new_notifications);
-                        return Poll::Ready(next_notification);
-                    };
+                    self.respond_to(
+                        &protocol::Request::GetShard(full_shard_id),
+                        protocol::Response::GetShard(shard)
+                    );
                 },
                 data_memory::OutEvent::DistributionSuccess(data_id) => {
                     let event = module::OutEvent::PutConfirmed(data_id);
@@ -584,15 +584,8 @@ impl NetworkBehaviour for Behaviour {
                     }
                 },
                 data_memory::OutEvent::AssignedRequest(full_shard_id, location) => {
-                    return Poll::Ready(ToSwarm::NotifyHandler {
-                        peer_id: location,
-                        handler: NotifyHandler::Any,
-                        event: handler::IncomingEvent::SendPrimary(
-                            protocol::Primary::Request(protocol::Request::GetShard(
-                                full_shard_id,
-                            )),
-                        ),
-                    });
+                    self.send_request(protocol::Request::GetShard(full_shard_id), &location);
+
                 }
                 data_memory::OutEvent::RecollectResponse(response) => {
                     let send_future = self.user_interaction.output.send(
@@ -736,9 +729,9 @@ impl NetworkBehaviour for Behaviour {
                     return Poll::Ready(ToSwarm::NotifyHandler {
                         peer_id: to,
                         handler: NotifyHandler::Any,
-                        event: handler::IncomingEvent::SendPrimary(protocol::Primary::Simple(
-                            protocol::Simple::GossipGraph(sync),
-                        )),
+                        event: libp2p::swarm::derive_prelude::Either::Left(
+                            protocol::Simple::GossipGraph(sync).into(),
+                        ),
                     });
                 }
                 consensus::graph::OutEvent::KnownPeersResponse(peers) => {

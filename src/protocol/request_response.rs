@@ -8,12 +8,6 @@ use super::{versions::RequestResponseVersion, Request, Response};
 #[derive(Debug, Clone)]
 pub struct SwarmRequestResponse;
 
-impl SwarmRequestResponse {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Error writing or reading data")]

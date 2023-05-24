@@ -8,9 +8,9 @@
 //! pairs should be the same. Otherwise, deserialization on receiving side
 //! will fail.
 
-use futures::io;
+// use futures::io;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
+// use std::fmt::Display;
 
 use crate::types::{GraphSync, Shard, Sid, Vid};
 
@@ -74,27 +74,27 @@ pub enum Message {
 //     }
 // }
 
-#[derive(Debug)]
-pub enum Error {
-    /// Could not parse the message as payload is too big for this machine
-    LengthTooBig,
-    SerializationFailed(Box<bincode::ErrorKind>),
-    Io(io::Error),
-}
+// #[derive(Debug)]
+// pub enum Error {
+//     /// Could not parse the message as payload is too big for this machine
+//     LengthTooBig,
+//     SerializationFailed(Box<bincode::ErrorKind>),
+//     Io(io::Error),
+// }
 
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::LengthTooBig => {
-                write!(f, "Reported payload length is too large for this machine")
-            }
-            Error::SerializationFailed(e) => write!(f, "Serialization error: {}", e),
-            Error::Io(e) => write!(f, "IO failure: {}", e),
-        }
-    }
-}
+// impl Display for Error {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             Error::LengthTooBig => {
+//                 write!(f, "Reported payload length is too large for this machine")
+//             }
+//             Error::SerializationFailed(e) => write!(f, "Serialization error: {}", e),
+//             Error::Io(e) => write!(f, "IO failure: {}", e),
+//         }
+//     }
+// }
 
-impl std::error::Error for Error {}
+// impl std::error::Error for Error {}
 
 // impl SwarmComputerProtocol {
 //     #[instrument(skip_all, fields(payload_size))]
