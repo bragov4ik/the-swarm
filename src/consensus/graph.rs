@@ -14,8 +14,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::pin;
 use tokio::sync::Notify;
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
+use crate::logging_helpers::Targets;
 use crate::module::ModuleChannelServer;
 use crate::signatures::EncodedEd25519Pubkey;
 use crate::types::{GraphSync, Sid, Vid};
@@ -284,6 +285,11 @@ where
                             }
                         },
                         InEvent::ScheduleTx(tx) => {
+                            match &tx {
+                                Transaction::InitializeStorage { distribution: _ } =>
+                                debug!(target: Targets::StorageInitialization.into_str(), "Scheduling init transaction for inclusion in event"),
+                                _ => (),
+                            }
                             self.push_tx(tx);
                         },
                         InEvent::CreateStandalone => {

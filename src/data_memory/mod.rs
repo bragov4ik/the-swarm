@@ -22,6 +22,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
+use crate::logging_helpers::Targets;
 use crate::module::ModuleChannelServer;
 use crate::{
     encoding::{
@@ -218,6 +219,7 @@ impl UninitializedDataMemory {
                     };
                     match in_event {
                         InEvent::Initialize { distribution } => {
+                            debug!(target: Targets::StorageInitialization.into_str(), "Initializing storage...");
                             let distribution = distribution.into_iter().collect();
                             if !self.verify_distribution(&distribution) {
                                 warn!("received distribution doesn't match expected pattern; \
@@ -226,6 +228,7 @@ impl UninitializedDataMemory {
                                 continue;
                             }
                             info!("storage initialized, ready");
+                            debug!(target: Targets::StorageInitialization.into_str(), "Notifying the user");
                             if let Err(_) = connection.output.send(OutEvent::Initialized).await {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return None;
@@ -386,21 +389,29 @@ impl InitializedDataMemory {
                         error!("`connection.output` is closed, shuttung down data memory");
                         return;
                     };
-                    // if let Err(_) = connection.output.send(OutEvent::NextProgram(program)).await {
-                    //     error!("`connection.output` is closed, shuttung down data memory");
-                    //     return;
-                    // }
                     match in_event {
                         InEvent::Initialize { distribution: _ } => {
                             warn!("received `InitializeStorage` transaction but storage was already initialized. ignoring");
                         },
                         // initial distribution
                         InEvent::PrepareServiceRequest { data_id, data } => {
+                            debug!(
+                                target: Targets::DataDistribution.into_str(),
+                                "Encoding data {:?} into shards", data_id
+                            );
                             let shards = self.encoding.encode(data).expect(
                                 "Encoding settings are likely incorrect, \
                                 all problems should've been caught at type-level"
                             );
+                            debug!(
+                                target: Targets::DataDistribution.into_str(),
+                                "Encoded into {} shards", shards.len()
+                            );
                             self.prepare_to_serve_shards(data_id.clone(), shards);
+                            debug!(
+                                target: Targets::DataDistribution.into_str(),
+                                "Prepared to serve shards of {:?}", data_id
+                            );
                             if let Err(_) = connection.output.send(
                                 OutEvent::PreparedServiceResponse(data_id)
                             ).await {
@@ -409,11 +420,19 @@ impl InitializedDataMemory {
                             }
                         },
                         InEvent::StorageRequestTx(data_id, author) => {
+                            debug!(
+                                target: Targets::DataDistribution.into_str(),
+                                "Checking assigned shard id"
+                            );
                             let Some(assigned_sid) = self.assigned_shard_id() else {
                                 debug!("see a storage request transaction from consensus, \
                                 but no shard ids are assigned to this peer. ignoring.");
                                 continue;
                             };
+                            debug!(
+                                target: Targets::DataDistribution.into_str(),
+                                "Requesting shard {:?} for {:?}", assigned_sid, data_id
+                            );
                             if let Err(_) = connection.output.send(
                                 OutEvent::ServeShardRequest((data_id, assigned_sid.clone()), author)
                             ).await {
@@ -434,6 +453,10 @@ impl InitializedDataMemory {
                                 warn!("peer that announced event distribution doesn't have shard assigned to us. strange but ok.");
                                 continue;
                             };
+                            debug!(
+                                target: Targets::DataDistribution.into_str(),
+                                "Storing shard {:?}", full_shard_id
+                            );
                             self.store_shard(full_shard_id.clone(), shard);
                             if let Err(_) = connection.output.send(OutEvent::AssignedStoreSuccess(full_shard_id)).await {
                                 error!("`connection.output` is closed, shuttung down data memory");
@@ -441,13 +464,25 @@ impl InitializedDataMemory {
                             }
                         },
                         InEvent::StoreConfirmed { full_shard_id, location } => {
+                            debug!(
+                                target: Targets::DataDistribution.into_str(),
+                                "Observed shard {:?} location: {:?}", full_shard_id, location
+                            );
                             self.observe_new_location(full_shard_id.clone(), location);
                             let Some(this_data_locations) = self.data_known_locations.get(&full_shard_id.0) else {
                                 warn!("bug in tracking data locations, new locations are not registered for some reason");
                                 continue;
                             };
                             let sufficient_shards: usize = self.encoding.settings().data_shards_sufficient.try_into().unwrap();
+                            debug!(
+                                target: Targets::DataDistribution.into_str(),
+                                "Checking if enough shards were distributed (threshold = {}/{}, have {})", sufficient_shards, self.encoding.settings().data_shards_total, this_data_locations.len()
+                            );
                             if this_data_locations.len() == sufficient_shards {
+                                debug!(
+                                    target: Targets::DataDistribution.into_str(),
+                                    "Enough shards were distributed, reporting to the user as a successfull distribution"
+                                );
                                 if let Err(_) = connection.output.send(
                                     OutEvent::DistributionSuccess(full_shard_id.0)
                                 ).await {
@@ -609,6 +644,7 @@ impl DistributedDataMemory {
         let Some(init) = self.uninit.run(&mut connection).await else {
             return;
         };
+        debug!(target: Targets::StorageInitialization.into_str(), "Initialized data storage, ready for operation");
         init.run(&mut connection).await;
     }
 

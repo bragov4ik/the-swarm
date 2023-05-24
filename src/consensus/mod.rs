@@ -48,7 +48,7 @@ pub enum Transaction<TDataId, TShardId, TPeerId> {
     },
     /// We want to put data at this (memory) address with distribution specified in
     /// `InitializeStorage` before
-    StorageRequest { address: TDataId },
+    StorageRequest { data_id: TDataId },
     /// Indicates that specified shard (data) of operand is stored somewhere
     Stored(TDataId, TShardId),
     /// Program is queued for execution by the author

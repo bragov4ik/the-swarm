@@ -30,6 +30,7 @@ use crate::{
     channel_log_recv, channel_log_send,
     consensus::{self, Transaction},
     data_memory, handler, instruction_storage,
+    logging_helpers::Targets,
     processor::{
         single_threaded::{self},
         Program,
@@ -226,13 +227,26 @@ impl Behaviour {
         let request_id = self
             .inner_request_response
             .send_request(peer, request.clone());
+        if let Request::ServeShard(full_shard_id) = &request {
+            debug!(
+                target: Targets::DataDistribution.into_str(),
+                "Request id {} for serve request ({:?})", request_id, full_shard_id
+            );
+        }
         self.pending_response.insert(request_id, request);
         self.inner_request_response_state_changed.notify_one();
     }
 
     fn respond_to(&mut self, request: &Request, response: Response) {
         let waiting_for_response = self.processed_requests.remove(&request).unwrap_or_default();
-        for (_, sender) in waiting_for_response {
+        for (request_id, sender) in waiting_for_response {
+            match &request {
+                Request::ServeShard(full_shard_id) => debug!(
+                    target: Targets::DataDistribution.into_str(),
+                    "Serving shard {:?} for request {:?}", full_shard_id, request_id
+                ),
+                _ => (),
+            }
             match self
                 .inner_request_response
                 .send_response(sender, response.clone())
@@ -299,6 +313,7 @@ impl NetworkBehaviour for Behaviour {
                 if other_established > 0 {
                     return;
                 }
+                info!("Adding peer {:?} to the list of connected", peer_id);
                 if !self.connected_peers.insert(peer_id) {
                     warn!("Newly connecting peer was already in connected list, data is inconsistent (?).");
                 }
@@ -313,6 +328,7 @@ impl NetworkBehaviour for Behaviour {
                 if remaining_established > 0 {
                     return;
                 }
+                info!("Removing peer {:?} from the list of connected", peer_id);
                 if !self.connected_peers.remove(&peer_id) {
                     warn!("Disconnecting peer wasn't in connected list, data is inconsistent (?).");
                 }
@@ -441,6 +457,10 @@ impl NetworkBehaviour for Behaviour {
                                     }
                             }
                             protocol::Request::ServeShard((data_id, shard_id)) => {
+                                debug!(
+                                    target: Targets::DataDistribution.into_str(),
+                                    "Received request for serving shard {:?}", (&data_id, &shard_id)
+                                );
                                 let event =
                                     data_memory::InEvent::ServeShardRequest((data_id, shard_id));
                                 let send_future = self.data_memory.input.send(event.clone());
@@ -496,6 +516,10 @@ impl NetworkBehaviour for Behaviour {
                                 protocol::Request::ServeShard(full_shard_id),
                                 protocol::Response::ServeShard(shard),
                             ) => {
+                                debug!(
+                                    target: Targets::DataDistribution.into_str(),
+                                    "Received served shard {:?}", full_shard_id
+                                );
                                 channel_log_recv!(
                                     "network.response",
                                     format!("ServeShard({:?})", &full_shard_id)
@@ -508,10 +532,10 @@ impl NetworkBehaviour for Behaviour {
                                 );
                                 pin_mut!(send_future);
                                 match send_future.poll(cx) {
-                                                Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("ServeShardResponse({:?},_)", full_shard_id)),
-                                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                                Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
-                                            };
+                                    Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("ServeShardResponse({:?},_)", full_shard_id)),
+                                    Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                    Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
+                                };
                             }
                             (request, response) => {
                                 warn!("Response does not match request (id {})", request_id);
@@ -568,15 +592,30 @@ impl NetworkBehaviour for Behaviour {
             Poll::Ready(Some(event)) => match event {
                 data_memory::OutEvent::ServeShardRequest(full_shard_id, location) => {
                     // todo: separate workflow for `from` == `local_peer_id`
+                    if location == self.local_peer_id {
+                        info!("Requesting from myself");
+                    }
+                    debug!(
+                        target: Targets::DataDistribution.into_str(),
+                        "Sending serve request"
+                    );
                     self.send_request(protocol::Request::ServeShard(full_shard_id), &location);
                 },
                 data_memory::OutEvent::ServeShardResponse(full_shard_id, shard) => {
+                    debug!(
+                        target: Targets::DataDistribution.into_str(),
+                        "Responding to ServeShard request for {:?}, shard is_some={:?}", full_shard_id, shard.is_some()
+                    );
                     self.respond_to(
                         &protocol::Request::ServeShard(full_shard_id),
                         protocol::Response::ServeShard(shard)
                     )
                 },
                 data_memory::OutEvent::AssignedStoreSuccess(full_shard_id) => {
+                    debug!(
+                        target: Targets::DataDistribution.into_str(),
+                        "Notifying other nodes that we store shard {:?} via consensus tx", full_shard_id
+                    );
                     let event = consensus::graph::InEvent::ScheduleTx(Transaction::Stored(full_shard_id.0, full_shard_id.1));
                     let send_future = self.consensus.input.send(event.clone());
                     pin_mut!(send_future);
@@ -614,7 +653,11 @@ impl NetworkBehaviour for Behaviour {
                     }
                 },
                 data_memory::OutEvent::PreparedServiceResponse(data_id) => {
-                    let event = consensus::graph::InEvent::ScheduleTx(Transaction::StorageRequest { address: data_id });
+                    debug!(
+                        target: Targets::DataDistribution.into_str(),
+                        "Placing storage request for {:?} onto consensus to notify peers", data_id
+                    );
+                    let event = consensus::graph::InEvent::ScheduleTx(Transaction::StorageRequest { data_id });
                     let send_future = self.consensus.input.send(event.clone());
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
@@ -688,6 +731,7 @@ impl NetworkBehaviour for Behaviour {
                     }
                 },
                 InEvent::Put(data_id, data) => {
+                    debug!(target: Targets::DataDistribution.into_str(), "Starting distribution process of data {:?}", data_id);
                     let send_future = self.data_memory.input.send(
                         data_memory::InEvent::PrepareServiceRequest { data_id: data_id.clone(), data }
                     );
@@ -710,6 +754,7 @@ impl NetworkBehaviour for Behaviour {
                     }
                 },
                 InEvent::InitializeStorage => {
+                    debug!(target: Targets::StorageInitialization.into_str(), "Starting storage initialization, getting list of known peers");
                     let send_future = self.consensus.input.send(
                         consensus::graph::InEvent::KnownPeersRequest
                     );
@@ -789,6 +834,7 @@ impl NetworkBehaviour for Behaviour {
                         .enumerate()
                         .map(|(i, peer)| (peer, Sid(i.try_into().unwrap())))
                         .collect();
+                    debug!(target: Targets::StorageInitialization.into_str(), "Initializing storage with distribution {:?}", peers);
                     info!("Initializing storage with distribution {:?}", peers);
                     let send_future =
                         self.consensus
@@ -813,8 +859,12 @@ impl NetworkBehaviour for Behaviour {
                     // handle tx's:
                     // track data locations, pull assigned shards
                     match tx {
-                        Transaction::StorageRequest { address } => {
-                            let event = data_memory::InEvent::StorageRequestTx(address, from);
+                        Transaction::StorageRequest { data_id } => {
+                            debug!(
+                                target: Targets::DataDistribution.into_str(),
+                                "Recognized finalized storage request for {:?}", data_id
+                            );
+                            let event = data_memory::InEvent::StorageRequestTx(data_id, from);
                             let send_future = self.data_memory.input.send(event.clone());
                             pin_mut!(send_future);
                             match send_future.poll(cx) {
@@ -825,6 +875,10 @@ impl NetworkBehaviour for Behaviour {
                         }
                         // take a note that `(data_id, shard_id)` is stored at `location`
                         Transaction::Stored(data_id, shard_id) => {
+                            debug!(
+                                target: Targets::DataDistribution.into_str(),
+                                "Recognized finalized storage confirmation for {:?} by {:?}", data_id, from
+                            );
                             let event = data_memory::InEvent::StoreConfirmed {
                                 full_shard_id: (data_id, shard_id),
                                 location: from,
@@ -871,6 +925,10 @@ impl NetworkBehaviour for Behaviour {
                             }
                         }
                         Transaction::InitializeStorage { distribution } => {
+                            debug!(
+                                target: Targets::StorageInitialization.into_str(),
+                                "Recognized finalized init transaction"
+                            );
                             let send_future = self
                                 .data_memory
                                 .input
@@ -920,7 +978,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => warn!("`consensus.input` queue is full. skipping random gossip. it's ok for a few times, but repeated skips are concerning, as it is likely to worsen distributed system responsiveness."),
                     }
                 } else {
-                    debug!("Time to send gossip but no peers found, idling...");
+                    warn!("Time to send gossip but no peers found, idling...");
                 }
             }
         }
