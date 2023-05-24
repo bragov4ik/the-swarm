@@ -47,7 +47,7 @@ where
     type Error = SimpleMessageReceiverError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
-    fn upgrade_inbound(self, mut socket: TSocket, info: Self::Info) -> Self::Future {
+    fn upgrade_inbound(self, mut socket: TSocket, _info: Self::Info) -> Self::Future {
         Box::pin(async move {
             let bytes = upgrade::read_length_prefixed(&mut socket, 1024 * 1024).await?;
             let response = bincode::deserialize(&bytes)?;
@@ -113,7 +113,7 @@ where
     type Error = SimpleMessageSendError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
-    fn upgrade_outbound(self, mut socket: TSocket, info: Self::Info) -> Self::Future {
+    fn upgrade_outbound(self, mut socket: TSocket, _info: Self::Info) -> Self::Future {
         Box::pin(async move {
             let bytes = bincode::serialize(&self)?;
             upgrade::write_length_prefixed(&mut socket, bytes).await?;
