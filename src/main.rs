@@ -4,8 +4,9 @@ use futures::StreamExt;
 use libp2p::mdns;
 use libp2p::swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent};
 use libp2p::{Multiaddr, PeerId};
+use protocol::request_response::SwarmRequestResponse;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use rust_hashgraph::algorithm::datastructure::Graph;
 use signatures::Ed25519Signer;
@@ -19,12 +20,14 @@ use crate::module::ModuleChannelServer;
 use crate::processor::single_threaded::ShardProcessor;
 use crate::types::{Sid, Vid};
 
+// "modules" as in `module::Module`
 mod behaviour;
 mod consensus;
 mod data_memory;
-mod encoding;
-mod handler;
 mod instruction_storage;
+mod request_response;
+
+mod encoding;
 mod io;
 mod logging_helpers;
 mod module;
@@ -60,6 +63,7 @@ struct Args {
 struct CombinedBehaviour {
     // Main logic
     main: behaviour::Behaviour,
+    request_response: libp2p::request_response::Behaviour<SwarmRequestResponse>,
     // MDNS performs LAN node discovery, allows not to manually write peer addresses
     mdns: mdns::async_io::Behaviour,
 }
@@ -69,6 +73,7 @@ struct CombinedBehaviour {
 #[allow(clippy::large_enum_variant)]
 enum CombinedBehaviourEvent {
     Main(behaviour::ToSwarmEvent),
+    RequestResponse(request_response::Event),
     Mdns(mdns::Event),
 }
 
@@ -81,6 +86,12 @@ impl From<behaviour::ToSwarmEvent> for CombinedBehaviourEvent {
 impl From<mdns::Event> for CombinedBehaviourEvent {
     fn from(event: mdns::Event) -> Self {
         CombinedBehaviourEvent::Mdns(event)
+    }
+}
+
+impl From<request_response::Event> for CombinedBehaviourEvent {
+    fn from(value: request_response::Event) -> Self {
+        CombinedBehaviourEvent::RequestResponse(value)
     }
 }
 
@@ -158,6 +169,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (behaviour_server, behaviour_client) =
         ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT, shutdown_token.clone());
 
+    let (mut request_response_server, request_response_client) =
+        ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT, shutdown_token.clone());
+
+    let request_response = libp2p::request_response::Behaviour::new(
+        SwarmRequestResponse,
+        std::iter::once((
+            protocol::versions::RequestResponseVersion::V1,
+            libp2p_request_response::ProtocolSupport::Full,
+        )),
+        Default::default(),
+    );
     let main_behaviour = behaviour::Behaviour::new(
         local_peer_id,
         Duration::from_millis(2000),
@@ -166,11 +188,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         instruction_memory_client,
         data_memory_client,
         processor_client,
+        request_response_client,
     );
     let mdns = mdns::async_io::Behaviour::new(Default::default(), local_peer_id)?;
 
     let behaviour = CombinedBehaviour {
         main: main_behaviour,
+        request_response,
         mdns,
     };
 
@@ -226,8 +250,40 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         shutdown_token.cancel();
                         break;
                     },
+                    SwarmEvent::Behaviour(CombinedBehaviourEvent::RequestResponse(r)) => {
+                        let handle_result = request_response::handle_request_response_event(&mut request_response_server, r).await;
+                        if let Err(_) = handle_result {
+                            error!("Shutting down...");
+                            shutdown_token.cancel();
+                            break;
+                        }
+                    }
                     SwarmEvent::Behaviour(event) => info!("{:?}", event),
                     other => debug!("{:?}", other),
+                }
+            }
+            action = request_response_server.input.recv() => {
+                let Some(action) = action else {
+                    error!("other half of `request_response_server.input` was closed. no reason to operate without main behaviour.");
+                    shutdown_token.cancel();
+                    break;
+                };
+                match action {
+                    request_response::InEvent::MakeRequest { request, to } => {
+                        let request_id = swarm.behaviour_mut().request_response.send_request(&to, request.clone());
+                        let send_result = request_response_server.output.send(request_response::OutEvent::AssignedRequestId { request_id, request }).await;
+                        if let Err(_) = send_result {
+                            error!("other half of `request_response_server.output` was closed. no reason to operate without main behaviour.");
+                            shutdown_token.cancel();
+                            break;
+                        }
+                    },
+                    request_response::InEvent::Respond { request_id, channel, response } => {
+                        let send_result = swarm.behaviour_mut().request_response.send_response(channel, response);
+                        if let Err(_) = &send_result {
+                            warn!("Could not send response to {:?}: {:?}", request_id, send_result);
+                        }
+                    },
                 }
             }
         }
