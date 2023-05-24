@@ -67,7 +67,7 @@ mod module {
 
     use crate::{
         data_memory,
-        processor::Instructions,
+        processor::{Instructions, ProgramIdentifier},
         types::{Data, Sid, Vid},
     };
 
@@ -93,6 +93,7 @@ mod module {
     pub enum OutEvent {
         // TODO: add hash?
         ScheduleOk,
+        ProgramExecuted(ProgramIdentifier),
         GetResponse(Result<(Vid, Data), data_memory::RecollectionError>),
         PutConfirmed(Vid),
         ListStoredResponse(Vec<(Vid, HashMap<Sid, PeerId>)>),
@@ -714,7 +715,16 @@ impl NetworkBehaviour for Behaviour {
                                 Poll::Pending => cant_operate_error_return!("`processor.input` queue is full. continuing will skip a program for execution, which is unacceptable."),
                             }
                         }
-                        instruction_storage::OutEvent::FinishedExecution(_) => todo!(),
+                        instruction_storage::OutEvent::FinishedExecution(program_id) => {
+                            let event = module::OutEvent::ProgramExecuted(program_id);
+                            let send_future = self.user_interaction.output.send(event.clone());
+                            pin_mut!(send_future);
+                            match send_future.poll(cx) {
+                                Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", format!("{:?}", event)),
+                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
+                                Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
+                            }
+                        },
                     }
                 }
                 Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),
