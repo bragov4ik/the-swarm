@@ -71,11 +71,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // let format = tracing_subscriber::fmt::format();
     #[cfg(not(feature = "console"))]
     let _guard = {
-        let (non_blocking, _guard) = tracing_appender::non_blocking(
-            std::fs::File::create(format!("./{}.log", swarm.local_peer_id())).unwrap(),
-        );
+        let filename = format!(
+            "./logs/{:?}-{}.log",
+            chrono::offset::Utc::now(),
+            swarm.local_peer_id()
+        )
+        .to_string();
+        let path = std::path::Path::new(&filename);
+        let prefix = path.parent().unwrap();
+        std::fs::create_dir_all(prefix).unwrap();
+        let (non_blocking, _guard) =
+            tracing_appender::non_blocking(std::fs::File::create(path).unwrap());
 
-        let file_layer = tracing_subscriber::fmt::Layer::new().with_writer(non_blocking);
+        let file_layer = tracing_subscriber::fmt::Layer::new()
+            .with_ansi(false)
+            .with_writer(non_blocking);
 
         tracing_subscriber::registry()
             .with(file_layer)

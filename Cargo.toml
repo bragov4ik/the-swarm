@@ -31,6 +31,7 @@ easy-repl = "0.2.1"
 tokio-util = "0.7.8"
 anyhow = "1.0.71"
 tracing-appender = "0.2.2"
+chrono = "0.4.24"
 
 [features]
 gen-input = []
