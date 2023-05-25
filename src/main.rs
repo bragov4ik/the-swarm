@@ -4,6 +4,7 @@ use libp2p::mdns;
 use libp2p::swarm::SwarmEvent;
 use libp2p::Multiaddr;
 use tracing::{debug, error, info, warn};
+use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
 
 use std::error::Error;
 
@@ -62,16 +63,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    // let format = tracing_subscriber::fmt::format();
-    #[cfg(not(feature = "console"))]
-    tracing_subscriber::fmt::init();
-    #[cfg(feature = "console")]
-    console_subscriber::init();
-
     let args = Args::parse();
 
     let (mut swarm, mut request_response_server, join_handles, shutdown_token) =
         network::new(None).await.unwrap();
+
+    // let format = tracing_subscriber::fmt::format();
+    #[cfg(not(feature = "console"))]
+    let _guard = {
+        let (non_blocking, _guard) = tracing_appender::non_blocking(
+            std::fs::File::create(format!("./{}.log", swarm.local_peer_id())).unwrap(),
+        );
+
+        let file_layer = tracing_subscriber::fmt::Layer::new().with_writer(non_blocking);
+
+        tracing_subscriber::registry()
+            .with(file_layer)
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+        _guard
+    };
+    #[cfg(feature = "console")]
+    console_subscriber::init();
 
     // Dial the peer identified by the multi-address given as the second
     // command-line argument, if any.
