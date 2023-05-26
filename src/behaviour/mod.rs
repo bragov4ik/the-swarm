@@ -848,6 +848,7 @@ impl NetworkBehaviour for Behaviour {
                 // Time to send another one
                 self.consensus_gossip_timer = Box::pin(sleep(self.consensus_gossip_timeout));
                 if let Some(random_peer) = random_peer {
+                    debug!("Chose {:?} for random gossip", random_peer);
                     let event = consensus::graph::InEvent::GenerateSyncRequest { to: random_peer };
                     let send_future = self.consensus.input.send(event.clone());
                     pin_mut!(send_future);

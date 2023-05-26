@@ -260,6 +260,7 @@ where
                     };
                     match in_event {
                         InEvent::GenerateSyncRequest { to } => {
+                            debug!("Generating sync for {:?}", to);
                             let sync = match self.inner.generate_sync_for(&to) {
                                 Ok(s) => s,
                                 Err(e) => {
