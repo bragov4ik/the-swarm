@@ -135,6 +135,7 @@ where
         from: PeerId,
         sync_jobs: SyncJobs<TDataId, TShardId>,
     ) -> Result<(), ApplySyncError> {
+        debug!("Applying sync with {} jobs", sync_jobs.as_linear().len());
         if !sync_jobs.as_linear().is_empty() {
             self.state_updated.notify_one();
         }

@@ -4,7 +4,9 @@ use libp2p::mdns;
 use libp2p::swarm::SwarmEvent;
 use libp2p::Multiaddr;
 use tracing::{debug, error, info, warn};
-use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{
+    prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer,
+};
 
 use std::error::Error;
 
@@ -87,9 +89,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .with_ansi(false)
             .with_writer(non_blocking);
 
+        let stdout_layer = tracing_subscriber::fmt::layer()
+            .with_filter(tracing_subscriber::EnvFilter::from_default_env());
+
         tracing_subscriber::registry()
             .with(file_layer)
-            .with(tracing_subscriber::fmt::layer())
+            .with(stdout_layer)
             .init();
         _guard
     };
