@@ -1,6 +1,8 @@
 from collections import defaultdict
+import os
 import sys
 from datetime import datetime, timedelta
+import tqdm
 
 from attr import dataclass
 
@@ -34,45 +36,57 @@ round_to = {
     'seconds': 1
 }
 
-times = defaultdict(list)
+times = []
 
 
-@dataclass
-class LogEntry:
-    timestamp: str
-    log_level: str
-    target: str
-    message: str
+# @dataclass
+# class LogEntry:
+#     timestamp: str
+#     log_level: str
+#     target: str
+#     message: str
 
 
 def analyze_log_entry(timestamp, log_level, target, message):
     aggregated_timestamp = round_up_timestamp(timestamp, round_to)
-    times[aggregated_timestamp].append(
-        LogEntry(timestamp, log_level, target, message))
+    if len(times) == 0 or times[-1][0] != aggregated_timestamp:
+        times.append([aggregated_timestamp, 1])
+    else:
+        # timestamp matches
+        times[-1][1] += 1
+
+
+def update_progress(progress):
+    size_str = str(progress) + ' lines handled!'
+    sys.stdout.write('%s\r' % size_str)
+    sys.stdout.flush()
 
 
 def analyze_large_log_file(file_path):
     with open(file_path, "r") as file:
-        for line in file:
-            timestamp, log_level, tail = line.split(" ", 2)
-            target, message = tail.split(":", 1)
-            analyze_log_entry(timestamp, log_level, target, message)
+        with tqdm.tqdm(total=os.path.getsize(file_path)) as pbar:
+            for line in file:
+                timestamp, log_level, tail = line.split(" ", 2)
+                target, message = tail.split(":", 1)
+                analyze_log_entry(timestamp, log_level, target, message)
+
+                pbar.update(len(line))
 
 
-def sort_timestamps(timestamps):
-    # Sort the dictionary by timestamp values and convert to a list of tuples
-    sorted_timestamps = sorted(
-        timestamps.items(), key=lambda x: datetime.fromisoformat(x[0]))
+# def sort_timestamps(timestamps):
+#     # Sort the dictionary by timestamp values and convert to a list of tuples
+#     sorted_timestamps = sorted(
+#         timestamps.items(), key=lambda x: datetime.fromisoformat(x[0]))
 
-    # Create a list of pairs (timestamp, length) with lengths of the stored lists
-    length_pairs = [(timestamp, len(data))
-                    for timestamp, data in sorted_timestamps]
+#     # Create a list of pairs (timestamp, length) with lengths of the stored lists
+#     length_pairs = [(timestamp, len(data))
+#                     for timestamp, data in sorted_timestamps]
 
-    # Sort the list of pairs based on timestamp values
-    sorted_length_pairs = sorted(
-        length_pairs, key=lambda x: datetime.fromisoformat(x[0]))
+#     # Sort the list of pairs based on timestamp values
+#     sorted_length_pairs = sorted(
+#         length_pairs, key=lambda x: datetime.fromisoformat(x[0]))
 
-    return sorted_length_pairs
+#     return sorted_length_pairs
 
 
 if __name__ == "__main__":
@@ -82,5 +96,4 @@ if __name__ == "__main__":
 
     log_file_path = sys.argv[1]
     analyze_large_log_file(log_file_path)
-    times_sorted = sort_timestamps(times)
-    [print(i) for i in times_sorted]
+    [print(i) for i in times]
