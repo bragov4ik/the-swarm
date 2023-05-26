@@ -1,4 +1,5 @@
 use clap::Parser;
+use console_subscriber::ConsoleLayer;
 use futures::StreamExt;
 use libp2p::swarm::SwarmEvent;
 use libp2p::Multiaddr;
@@ -10,6 +11,7 @@ use tracing_subscriber::{
 };
 
 use std::error::Error;
+use std::net::SocketAddr;
 
 use crate::network::CombinedBehaviourEvent;
 
@@ -51,6 +53,10 @@ struct Args {
     #[clap(short, long)]
     dial_address: Option<String>,
 
+    #[cfg(feature = "console-log")]
+    #[clap(short, long)]
+    console_subscriber_addr: Option<String>,
+
     /// Seed to generate key
     #[clap(long)]
     key_seed: Option<u8>,
@@ -71,7 +77,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (mut swarm, mut request_response_server, join_handles, shutdown_token) =
         network::new(None).await.unwrap();
 
-    let _guard = configure_logs(*swarm.local_peer_id());
+    let _guard = configure_logs(*swarm.local_peer_id(), args.console_subscriber_addr);
 
     // Dial the peer identified by the multi-address given as the second
     // command-line argument, if any.
@@ -172,7 +178,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 /// Returned guard should be dropped at the end of program execution
 /// (see docs for details)
-fn configure_logs(local_id: PeerId) -> Option<WorkerGuard> {
+fn configure_logs(
+    local_id: PeerId,
+    console_subscriber_addr: Option<String>,
+) -> Option<WorkerGuard> {
     #[allow(unused_assignments)]
     let mut guard = None;
     #[cfg(feature = "file-log")]
@@ -193,7 +202,17 @@ fn configure_logs(local_id: PeerId) -> Option<WorkerGuard> {
         file_layer
     };
     #[cfg(feature = "console-log")]
-    let console_layer = console_subscriber::spawn();
+    let console_layer = {
+        let mut layer = ConsoleLayer::builder().with_default_env();
+        match console_subscriber_addr {
+            Some(addr) => {
+                let addr: SocketAddr = addr.parse().unwrap();
+                layer = layer.server_addr(addr);
+            }
+            None => (),
+        }
+        layer.spawn()
+    };
 
     let stdout_layer = tracing_subscriber::fmt::layer()
         .with_filter(tracing_subscriber::EnvFilter::from_default_env());

@@ -383,24 +383,27 @@ impl NetworkBehaviour for Behaviour {
                     // todo: separate workflow for `from` == `local_peer_id`
                     if location == self.local_peer_id {
                         info!("Requesting from myself");
+                        todo!();
                     }
-                    debug!(
-                        target: Targets::DataDistribution.into_str(),
-                        "Sending serve request for {:?}", full_shard_id
-                    );
-                    let request = protocol::Request::ServeShard(full_shard_id);
-                    channel_log_send!("network.request", format!("{:?}", request));
-                    let send_future = self.request_response
-                        .input
-                        .send(crate::request_response::InEvent::MakeRequest{
-                            request: request.clone(),
-                            to: location,
-                        });
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("network.request", format!("{:?}", request)),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `network.request` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`network.request` queue is full. continuing will drop our request. for now fail fast to see this."),
+                    else {
+                        debug!(
+                            target: Targets::DataDistribution.into_str(),
+                            "Sending serve request for {:?}", full_shard_id
+                        );
+                        let request = protocol::Request::ServeShard(full_shard_id);
+                        channel_log_send!("network.request", format!("{:?}", request));
+                        let send_future = self.request_response
+                            .input
+                            .send(crate::request_response::InEvent::MakeRequest{
+                                request: request.clone(),
+                                to: location,
+                            });
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("network.request", format!("{:?}", request)),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `network.request` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`network.request` queue is full. continuing will drop our request. for now fail fast to see this."),
+                        }
                     }
                 },
                 data_memory::OutEvent::ServeShardResponse(full_shard_id, shard) => {
