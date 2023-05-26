@@ -28,7 +28,7 @@ pub struct Module;
 impl crate::module::Module for Module {
     type InEvent = InEvent;
     type OutEvent = OutEvent;
-    type SharedState = ();
+    type SharedState = ModuleState;
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +53,20 @@ pub enum InEvent {
     ApplySync { from: PeerId, sync: GraphSync },
     ScheduleTx(Transaction<Vid, Sid, PeerId>),
     CreateStandalone,
+}
+
+pub enum ModuleState {
+    Ready,
+    Busy,
+}
+
+impl crate::module::State for ModuleState {
+    fn accepts_input(&self) -> bool {
+        match self {
+            ModuleState::Ready => true,
+            ModuleState::Busy => false,
+        }
+    }
 }
 
 pub type SyncJobs<TDataId, TShardId> =
@@ -261,6 +275,7 @@ where
                     match in_event {
                         InEvent::GenerateSyncRequest { to } => {
                             debug!("Generating sync for {:?}", to);
+                            connection.set_state(ModuleState::Busy);
                             let sync = match self.inner.generate_sync_for(&to) {
                                 Ok(s) => s,
                                 Err(e) => {
@@ -269,6 +284,7 @@ where
                                     return;
                                 },
                             };
+                            connection.set_state(ModuleState::Ready);
                             // todo: maybe use `try_send` or `reserve` on each send
                             if let Err(_) = connection.output.send(OutEvent::GenerateSyncResponse { to, sync }).await {
                                 error!("`connection.output` is closed, shuttung down consensus");
@@ -282,7 +298,10 @@ where
                             }
                         }
                         InEvent::ApplySync { from, sync } => {
-                            if let Err(e) = self.apply_sync(from, sync) {
+                            connection.set_state(ModuleState::Busy);
+                            let apply_result = self.apply_sync(from, sync);
+                            connection.set_state(ModuleState::Ready);
+                            if let Err(e) = apply_result {
                                 warn!("Failed to apply sync from peer {}: {}", from, e);
                             }
                         },

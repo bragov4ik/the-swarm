@@ -260,19 +260,6 @@ impl ShardProcessor {
         Self { memory_access: bus }
     }
 
-    fn set_state(
-        state: &Option<std::sync::Arc<std::sync::Mutex<ModuleState>>>,
-        value: ModuleState,
-    ) {
-        if let Some(ref m) = state {
-            if let Ok(mut state) = m.lock() {
-                *state = value;
-            } else {
-                warn!("State mutex poisoned");
-            };
-        }
-    }
-
     pub async fn run(self, mut connection: ModuleChannelServer<Module>) {
         loop {
             tokio::select! {
@@ -283,7 +270,7 @@ impl ShardProcessor {
                     };
                     match in_event {
                         InEvent::Execute(program) => {
-                            Self::set_state(&connection.state, ModuleState::Executing);
+                            connection.set_state(ModuleState::Executing);
                             let (instructions, program_id) = program.into_parts();
                             let results = self.execute(instructions).await;
                             if let Err(_) = connection.output.send(
@@ -292,7 +279,7 @@ impl ShardProcessor {
                                 error!("`connection.output` is closed, shuttung down processor");
                                 return;
                             }
-                            Self::set_state(&connection.state, ModuleState::Ready);
+                            connection.set_state(ModuleState::Ready);
                         },
                     }
                 }

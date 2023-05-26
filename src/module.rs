@@ -1,6 +1,8 @@
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use tracing::warn;
 
 pub trait Module {
     type InEvent;
@@ -50,6 +52,17 @@ where
         };
         (server, client)
     }
+    pub fn set_state(&mut self, value: M::SharedState) {
+        let Some(state) = &mut self.state else {
+            return;
+        };
+        let timeout = Duration::from_millis(100);
+        let Some(mut state) = state.try_lock_for(timeout) else {
+            warn!("State mutex was locked for >{:?}, shouldn't happen", timeout);
+            return;
+        };
+        *state = value;
+    }
 }
 
 /// Created with [`ModuleChannelServer::new()`]
@@ -64,7 +77,7 @@ impl<M: Module> ModuleChannelClient<M> {
         let Some(state) = &self.state else {
             return true
         };
-        let Ok(state) = state.try_lock() else {
+        let Some(state) = state.try_lock() else {
             return false;
         };
         state.accepts_input()
