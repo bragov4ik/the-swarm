@@ -136,13 +136,15 @@ pub async fn new(
     let (request_response_server, request_response_client) =
         ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT, shutdown_token.clone());
 
+    let mut request_response_cfg: libp2p::request_response::Config = Default::default();
+    request_response_cfg.set_connection_keep_alive(Duration::from_secs(60));
     let request_response = libp2p::request_response::Behaviour::new(
         SwarmRequestResponse,
         std::iter::once((
             RequestResponseVersion::V1,
             libp2p_request_response::ProtocolSupport::Full,
         )),
-        Default::default(),
+        request_response_cfg,
     );
     let main_behaviour = behaviour::Behaviour::new(
         local_peer_id,

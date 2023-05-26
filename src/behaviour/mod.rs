@@ -226,7 +226,12 @@ impl NetworkBehaviour for Behaviour {
         _remote_addr: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         debug!("Creating new inbound connection handler");
-        Ok(SwarmOneShot::default())
+        let mut cfg = libp2p::swarm::OneShotHandlerConfig::default();
+        cfg.keep_alive_timeout = Duration::from_secs(60);
+        Ok(libp2p::swarm::OneShotHandler::new(
+            libp2p::swarm::SubstreamProtocol::new(Default::default(), ()),
+            cfg,
+        ))
     }
 
     fn handle_established_outbound_connection(
@@ -237,7 +242,12 @@ impl NetworkBehaviour for Behaviour {
         _role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         debug!("Creating new out bound connection handler");
-        Ok(SwarmOneShot::default())
+        let mut cfg = libp2p::swarm::OneShotHandlerConfig::default();
+        cfg.keep_alive_timeout = Duration::from_secs(60);
+        Ok(libp2p::swarm::OneShotHandler::new(
+            libp2p::swarm::SubstreamProtocol::new(Default::default(), ()),
+            cfg,
+        ))
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
