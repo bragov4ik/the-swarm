@@ -1,9 +1,10 @@
 use clap::Parser;
 use futures::StreamExt;
-use libp2p::mdns;
 use libp2p::swarm::SwarmEvent;
 use libp2p::Multiaddr;
+use libp2p::{mdns, PeerId};
 use tracing::{debug, error, info, warn};
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer,
 };
@@ -70,36 +71,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (mut swarm, mut request_response_server, join_handles, shutdown_token) =
         network::new(None).await.unwrap();
 
-    // let format = tracing_subscriber::fmt::format();
-    #[cfg(not(feature = "console"))]
-    let _guard = {
-        let filename = format!(
-            "./logs/{:?}-{}.log",
-            chrono::offset::Utc::now(),
-            swarm.local_peer_id()
-        )
-        .to_string();
-        let path = std::path::Path::new(&filename);
-        let prefix = path.parent().unwrap();
-        std::fs::create_dir_all(prefix).unwrap();
-        let (non_blocking, _guard) =
-            tracing_appender::non_blocking(std::fs::File::create(path).unwrap());
-
-        let file_layer = tracing_subscriber::fmt::Layer::new()
-            .with_ansi(false)
-            .with_writer(non_blocking);
-
-        let stdout_layer = tracing_subscriber::fmt::layer()
-            .with_filter(tracing_subscriber::EnvFilter::from_default_env());
-
-        tracing_subscriber::registry()
-            .with(file_layer)
-            .with(stdout_layer)
-            .init();
-        _guard
-    };
-    #[cfg(feature = "console")]
-    console_subscriber::init();
+    let _guard = configure_logs(*swarm.local_peer_id());
 
     // Dial the peer identified by the multi-address given as the second
     // command-line argument, if any.
@@ -196,4 +168,42 @@ async fn main() -> Result<(), Box<dyn Error>> {
         handle.await.unwrap()
     }
     Ok(())
+}
+
+/// Returned guard should be dropped at the end of program execution
+/// (see docs for details)
+fn configure_logs(local_id: PeerId) -> Option<WorkerGuard> {
+    #[allow(unused_assignments)]
+    let mut guard = None;
+    #[cfg(feature = "file-log")]
+    let file_layer = {
+        let filename =
+            format!("./logs/{:?}-{}.log", chrono::offset::Utc::now(), local_id).to_string();
+        let path = std::path::Path::new(&filename);
+        let prefix = path.parent().unwrap();
+        std::fs::create_dir_all(prefix).unwrap();
+        let (non_blocking, _guard) =
+            tracing_appender::non_blocking(std::fs::File::create(path).unwrap());
+        guard = Some(_guard);
+
+        let file_layer = tracing_subscriber::fmt::Layer::new()
+            .with_ansi(false)
+            .with_writer(non_blocking);
+
+        file_layer
+    };
+    #[cfg(feature = "console-log")]
+    let console_layer = console_subscriber::spawn();
+
+    let stdout_layer = tracing_subscriber::fmt::layer()
+        .with_filter(tracing_subscriber::EnvFilter::from_default_env());
+
+    let registry = tracing_subscriber::registry();
+
+    #[cfg(feature = "file-log")]
+    let registry = registry.with(file_layer);
+    #[cfg(feature = "console-log")]
+    let registry = registry.with(console_layer);
+    registry.with(stdout_layer).init();
+    guard
 }

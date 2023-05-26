@@ -36,4 +36,5 @@ parking_lot = "0.12.1"
 
 [features]
 gen-input = []
-console = []
+console-log = []
+file-log = []

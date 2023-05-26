@@ -1,0 +1,6 @@
+{
+    "rust-analyzer.cargo.features": [
+        "console-log",
+        "file-log"
+    ]
+}
