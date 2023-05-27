@@ -77,7 +77,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (mut swarm, mut request_response_server, join_handles, shutdown_token) =
         network::new(None).await.unwrap();
 
-    let _guard = configure_logs(*swarm.local_peer_id(), args.console_subscriber_addr);
+    #[cfg(feature = "console-log")]
+    let console_subscriber_addr = args.console_subscriber_addr;
+    #[cfg(not(feature = "console-log"))]
+    let console_subscriber_addr = None;
+
+    let _guard = configure_logs(*swarm.local_peer_id(), console_subscriber_addr);
 
     // Dial the peer identified by the multi-address given as the second
     // command-line argument, if any.
@@ -153,6 +158,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 match action {
                     request_response::InEvent::MakeRequest { request, to } => {
                         // todo: check if `to` is local id, reroute manually if needed
+                        // https://github.com/libp2p/go-libp2p/issues/328
                         let request_id = swarm.behaviour_mut().request_response.send_request(&to, request.clone());
                         let send_result = request_response_server.output.send(request_response::OutEvent::AssignedRequestId { request_id, request }).await;
                         if let Err(_) = send_result {
