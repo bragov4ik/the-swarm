@@ -152,6 +152,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 info!("{:?}", action);
                 match action {
                     request_response::InEvent::MakeRequest { request, to } => {
+                        // todo: check if `to` is local id, reroute manually if needed
                         let request_id = swarm.behaviour_mut().request_response.send_request(&to, request.clone());
                         let send_result = request_response_server.output.send(request_response::OutEvent::AssignedRequestId { request_id, request }).await;
                         if let Err(_) = send_result {

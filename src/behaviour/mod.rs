@@ -380,30 +380,23 @@ impl NetworkBehaviour for Behaviour {
         match self.data_memory.output.poll_recv(cx) {
             Poll::Ready(Some(event)) => match event {
                 data_memory::OutEvent::ServeShardRequest(full_shard_id, location) => {
-                    // todo: separate workflow for `from` == `local_peer_id`
-                    if location == self.local_peer_id {
-                        info!("Requesting from myself");
-                        todo!();
-                    }
-                    else {
-                        debug!(
-                            target: Targets::DataDistribution.into_str(),
-                            "Sending serve request for {:?}", full_shard_id
-                        );
-                        let request = protocol::Request::ServeShard(full_shard_id);
-                        channel_log_send!("network.request", format!("{:?}", request));
-                        let send_future = self.request_response
-                            .input
-                            .send(crate::request_response::InEvent::MakeRequest{
-                                request: request.clone(),
-                                to: location,
-                            });
-                        pin_mut!(send_future);
-                        match send_future.poll(cx) {
-                            Poll::Ready(Ok(_)) => channel_log_send!("network.request", format!("{:?}", request)),
-                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `network.request` was closed. cannot operate without this module."),
-                            Poll::Pending => cant_operate_error_return!("`network.request` queue is full. continuing will drop our request. for now fail fast to see this."),
-                        }
+                    debug!(
+                        target: Targets::DataDistribution.into_str(),
+                        "Sending serve request for {:?}", full_shard_id
+                    );
+                    let request = protocol::Request::ServeShard(full_shard_id);
+                    channel_log_send!("network.request", format!("{:?}", request));
+                    let send_future = self.request_response
+                        .input
+                        .send(crate::request_response::InEvent::MakeRequest{
+                            request: request.clone(),
+                            to: location,
+                        });
+                    pin_mut!(send_future);
+                    match send_future.poll(cx) {
+                        Poll::Ready(Ok(_)) => channel_log_send!("network.request", format!("{:?}", request)),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `network.request` was closed. cannot operate without this module."),
+                        Poll::Pending => cant_operate_error_return!("`network.request` queue is full. continuing will drop our request. for now fail fast to see this."),
                     }
                 },
                 data_memory::OutEvent::ServeShardResponse(full_shard_id, shard) => {
@@ -893,19 +886,14 @@ impl NetworkBehaviour for Behaviour {
                                             shard.is_some()
                                         )
                                     );
-                                    match shard {
-                                        Some(shard) => {
-                                            let send_future = self.data_memory.input.send(
-                                                data_memory::InEvent::AssignedResponse { full_shard_id: full_shard_id.clone(), shard }
-                                            );
-                                            pin_mut!(send_future);
-                                            match send_future.poll(cx) {
-                                                Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("AssignedResponse({:?},_)", full_shard_id)),
-                                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                                Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
-                                            }
-                                        },
-                                        None => warn!("Peer that announced that it stores assigned shard doesn't have it. Misbehaviour??"),
+                                    let send_future = self.data_memory.input.send(
+                                        data_memory::InEvent::AssignedResponse(full_shard_id.clone(), shard)
+                                    );
+                                    pin_mut!(send_future);
+                                    match send_future.poll(cx) {
+                                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("AssignedResponse({:?},_)", full_shard_id)),
+                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
                                     }
                                 }
                                 (
@@ -969,10 +957,10 @@ impl NetworkBehaviour for Behaviour {
                                 let send_future = self.data_memory.input.send(event.clone());
                                 pin_mut!(send_future);
                                 match send_future.poll(cx) {
-                                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
-                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will ignore some peer's request, which is unacceptable (?)."),
-                                    }
+                                    Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
+                                    Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                    Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will ignore some peer's request, which is unacceptable (?)."),
+                                }
                             }
                         }
                         channel_log_recv!("network.request", format!("{:?}", &request));

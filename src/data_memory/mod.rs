@@ -124,10 +124,7 @@ pub enum InEvent {
     /// (server) Give shard assigned to the node
     AssignedRequest(FullShardId),
     /// (requester) Receive previously requested shard
-    AssignedResponse {
-        full_shard_id: FullShardId,
-        shard: Shard,
-    },
+    AssignedResponse(FullShardId, Option<Shard>),
     /// List of successfully stored data ids
     ListDistributed,
 
@@ -249,10 +246,7 @@ impl UninitializedDataMemory {
                         | InEvent::AssignedRequest(_)
                         | InEvent::ListDistributed
                         | InEvent::RecollectRequest(_)
-                        | InEvent::AssignedResponse {
-                            full_shard_id: _,
-                            shard: _,
-                        } => warn!("have not initialized storage, ignoring request {:?}", in_event),
+                        | InEvent::AssignedResponse(_, _) => warn!("have not initialized storage, ignoring request {:?}", in_event),
                     }
 
                 }
@@ -379,6 +373,94 @@ impl InitializedDataMemory {
     }
 }
 
+enum HandleResult {
+    Ok,
+    Abort,
+}
+
+impl InitializedDataMemory {
+    async fn handle_serve_shard_response(
+        &mut self,
+        full_shard_id: FullShardId,
+        shard: Option<Shard>,
+        connection: &mut ModuleChannelServer<Module>,
+    ) -> HandleResult {
+        let Some(shard) = shard else {
+            warn!("peer that announced event distribution doesn't have shard assigned to us. strange but ok.");
+            return HandleResult::Ok;
+        };
+        debug!(
+            target: Targets::DataDistribution.into_str(),
+            "Storing shard {:?}", full_shard_id
+        );
+        self.store_shard(full_shard_id.clone(), shard);
+        if let Err(_) = connection
+            .output
+            .send(OutEvent::AssignedStoreSuccess(full_shard_id))
+            .await
+        {
+            error!("`connection.output` is closed, shuttung down data memory");
+            return HandleResult::Abort;
+        }
+        return HandleResult::Ok;
+    }
+
+    async fn handle_assigned_response(
+        &mut self,
+        full_shard_id: FullShardId,
+        shard: Option<Shard>,
+        connection: &mut ModuleChannelServer<Module>,
+    ) -> HandleResult {
+        let Some(shard) = shard else {
+            warn!("Peer that announced that it stores assigned shard doesn't have it. Misbehaviour??");
+            return HandleResult::Ok;
+        };
+        let Some(received_shards) = self.currently_assembled.get_mut(&full_shard_id.0) else {
+            debug!("received shard was likely already assembled, skipping");
+            return HandleResult::Ok;
+        };
+        if !received_shards.contains_key(&full_shard_id.1) {
+            received_shards.insert(full_shard_id.1, shard);
+            let sufficient_shards_n = self
+                .encoding
+                .settings()
+                .data_shards_sufficient
+                .try_into()
+                .expect("# of shards sufficient is too large");
+            if received_shards.len() >= sufficient_shards_n {
+                // # of shards is sufficient to reassemble
+                let shards = self
+                    .currently_assembled
+                    .remove(&full_shard_id.0)
+                    .expect("Just had this entry");
+                let data = match self.encoding.decode(shards) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        // todo: handle better
+                        warn!("Collected enough shards but failed to decode: {}", e);
+                        return HandleResult::Ok;
+                    }
+                };
+                if let Err(_) = connection
+                    .output
+                    .send(OutEvent::RecollectResponse(Ok((
+                        full_shard_id.0,
+                        data.clone(),
+                    ))))
+                    .await
+                {
+                    error!("`connection.output` is closed, shuttung down data memory");
+                    return HandleResult::Abort;
+                }
+            }
+        } else {
+            // not sure when it's possible
+            warn!("received shard that is already present, weird");
+        }
+        return HandleResult::Ok;
+    }
+}
+
 impl InitializedDataMemory {
     async fn run(mut self, connection: &mut ModuleChannelServer<Module>) {
         loop {
@@ -429,15 +511,29 @@ impl InitializedDataMemory {
                                 but no shard ids are assigned to this peer. ignoring.");
                                 continue;
                             };
-                            debug!(
-                                target: Targets::DataDistribution.into_str(),
-                                "Requesting shard {:?} for {:?}", assigned_sid, data_id
-                            );
-                            if let Err(_) = connection.output.send(
-                                OutEvent::ServeShardRequest((data_id, assigned_sid.clone()), author)
-                            ).await {
-                                error!("`connection.output` is closed, shuttung down data memory");
-                                return;
+                            if author == self.local_id {
+                                let full_shard_id = (data_id, assigned_sid.clone());
+                                let shard = self.serve_shard(&full_shard_id);
+                                // imitate incoming `ServeShardResponse`
+                                match self.handle_serve_shard_response(full_shard_id, shard, connection).await {
+                                    HandleResult::Ok => (),
+                                    HandleResult::Abort => {
+                                        connection.shutdown.cancel();
+                                        return
+                                    },
+                                }
+                            }
+                            else {
+                                debug!(
+                                    target: Targets::DataDistribution.into_str(),
+                                    "Requesting shard {:?} for {:?}", assigned_sid, data_id
+                                );
+                                if let Err(_) = connection.output.send(
+                                    OutEvent::ServeShardRequest((data_id, assigned_sid.clone()), author)
+                                ).await {
+                                    error!("`connection.output` is closed, shuttung down data memory");
+                                    return;
+                                }
                             }
                         },
                         InEvent::ServeShardRequest(full_shard_id) => {
@@ -449,18 +545,12 @@ impl InitializedDataMemory {
                         },
                         // assigned data
                         InEvent::ServeShardResponse(full_shard_id, shard) => {
-                            let Some(shard) = shard else {
-                                warn!("peer that announced event distribution doesn't have shard assigned to us. strange but ok.");
-                                continue;
-                            };
-                            debug!(
-                                target: Targets::DataDistribution.into_str(),
-                                "Storing shard {:?}", full_shard_id
-                            );
-                            self.store_shard(full_shard_id.clone(), shard);
-                            if let Err(_) = connection.output.send(OutEvent::AssignedStoreSuccess(full_shard_id)).await {
-                                error!("`connection.output` is closed, shuttung down data memory");
-                                return;
+                            match self.handle_serve_shard_response(full_shard_id, shard, connection).await {
+                                HandleResult::Ok => (),
+                                HandleResult::Abort => {
+                                    connection.shutdown.cancel();
+                                    return
+                                },
                             }
                         },
                         InEvent::StoreConfirmed { full_shard_id, location } => {
@@ -537,55 +627,40 @@ impl InitializedDataMemory {
                                 // requests were already sent, just join the waiting list
                                 hash_map::Entry::Occupied(_) => (),
                                 hash_map::Entry::Vacant(v) => {
-                                    for (shard, owner) in known_locations {
-                                        if let Err(_) = connection.output.send(OutEvent::AssignedRequest(
-                                            (data_id.clone(), shard.clone()),
-                                            owner.clone()
-                                        )).await {
-                                            error!("`connection.output` is closed, shuttung down data memory");
-                                            return;
-                                        }
-                                    }
                                     v.insert(HashMap::new());
                                 },
                             }
-                        },
-                        InEvent::AssignedResponse { full_shard_id, shard } => {
-                            if let Some(received_shards) = self.currently_assembled.get_mut(&full_shard_id.0) {
-                                if !received_shards.contains_key(&full_shard_id.1) {
-                                    received_shards.insert(full_shard_id.1, shard);
-                                    let sufficient_shards_n = self.encoding.settings()
-                                            .data_shards_sufficient
-                                            .try_into()
-                                            .expect("# of shards sufficient is too large");
-                                    if received_shards.len() >= sufficient_shards_n {
-                                        // # of shards is sufficient to reassemble
-                                        let shards = self.currently_assembled.remove(&full_shard_id.0).expect("Just had this entry");
-                                        let data = match self.encoding.decode(shards) {
-                                            Ok(data) => data,
-                                            Err(e) => {
-                                                // todo: handle better
-                                                warn!("Collected enough shards but failed to decode: {}", e);
-                                                continue;
-                                            },
-                                        };
-                                        if let Err(_) = connection.output.send(
-                                            OutEvent::RecollectResponse(Ok(
-                                                (full_shard_id.0, data.clone())
-                                            ))
-                                        ).await {
-                                            error!("`connection.output` is closed, shuttung down data memory");
-                                            return;
-                                        }
+                            for (shard_id, owner) in known_locations.clone() {
+                                if owner == self.local_id {
+                                    let full_shard_id = (data_id.clone(), shard_id);
+                                    let shard = self.get_shard(&full_shard_id).cloned();
+                                    // imitate incoming `ServeShardResponse`
+                                    match self.handle_assigned_response(full_shard_id, shard, connection).await {
+                                        HandleResult::Ok => (),
+                                        HandleResult::Abort => {
+                                            connection.shutdown.cancel();
+                                            return
+                                        },
                                     }
                                 }
                                 else {
-                                    // not sure when it's possible
-                                    warn!("received shard that is already present, weird");
+                                    if let Err(_) = connection.output.send(OutEvent::AssignedRequest(
+                                        (data_id.clone(), shard_id),
+                                        owner.clone()
+                                    )).await {
+                                        error!("`connection.output` is closed, shuttung down data memory");
+                                        return;
+                                    }
                                 }
                             }
-                            else {
-                                debug!("received shard was likely already assembled, skipping");
+                        },
+                        InEvent::AssignedResponse(full_shard_id, shard) => {
+                            match self.handle_assigned_response(full_shard_id, shard, connection).await {
+                                HandleResult::Ok => (),
+                                HandleResult::Abort => {
+                                    connection.shutdown.cancel();
+                                    return
+                                },
                             }
                         },
                     }
