@@ -38,7 +38,35 @@ pub enum OutEvent {
         sync: GraphSync,
     },
     KnownPeersResponse(Vec<PeerId>),
+    /// This transaction is confirmed to be seen by supermajority
+    /// of the peers and its ordering is univocally decided by
+    /// consensus.
     FinalizedTransaction {
+        from: PeerId,
+        event_hash: Hash,
+        tx: Transaction<Vid, Sid, PeerId>,
+    },
+    /// This transaction (tx) is not guaranteed to be seen by supermajority
+    /// of the peers; the ordering (of events) might change in finalized
+    /// version.
+    ///
+    /// Note that the order of recognized events (and, thus,
+    /// txs) follows ancestry relationship. I.e. if event $A$ is an ancestor
+    /// of event $B$, `RecognizedTransaction`'s for $A$'s txs will be emitted
+    /// before `RecognizedTransaction`'s for $B$
+    ///
+    /// ## Applications
+    ///
+    /// They still can be useful for example for:
+    /// 1. Speculative execution; a peer can start to perform some actions
+    /// associated with the transaction and have the result ready when
+    /// the transaction actually finalizes.
+    /// 2. Relying in special cases of the network, such as single peer
+    /// making all "command" transactions (txs switching order of which
+    /// can actually make a difference). Due to ancestry between all its events,
+    /// all "command" txs are going to be ordered properly, making it possible to
+    /// react to them right away and to improve system usability & responsiveness
+    RecognizedTransaction {
         from: PeerId,
         event_hash: Hash,
         tx: Transaction<Vid, Sid, PeerId>,

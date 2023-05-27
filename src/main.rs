@@ -154,7 +154,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     shutdown_token.cancel();
                     break;
                 };
-                info!("{:?}", action);
+                debug!("{:?}", action);
                 match action {
                     request_response::InEvent::MakeRequest { request, to } => {
                         // todo: check if `to` is local id, reroute manually if needed
