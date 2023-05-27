@@ -672,6 +672,10 @@ impl NetworkBehaviour for Behaviour {
                     });
                 }
                 consensus::graph::OutEvent::KnownPeersResponse(peers) => {
+                    let mut peers = HashSet::<_>::from_iter(peers.into_iter());
+                    for p in &self.connected_peers {
+                        peers.insert(p.clone());
+                    }
                     let peers = peers
                         .into_iter()
                         .enumerate()
