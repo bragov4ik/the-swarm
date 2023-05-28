@@ -40,6 +40,7 @@ use crate::{
         one_shot::{InnerMessage, SimpleMessage, SwarmOneShot},
         Request,
     },
+    types::Vid,
 };
 use crate::{
     module::{ModuleChannelClient, ModuleChannelServer},
@@ -47,10 +48,7 @@ use crate::{
 };
 pub use module::{InEvent, Module, OutEvent};
 
-pub type ToSwarmEvent = Result<Event, Error>;
-
-#[derive(Debug)]
-pub enum Event {}
+mod handlers;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -100,6 +98,11 @@ mod module {
         StorageInitialized,
     }
 }
+
+pub type ToSwarmEvent = Result<Event, Error>;
+
+#[derive(Debug)]
+pub enum Event {}
 
 struct ConnectionEventWrapper<E> {
     peer_id: libp2p::PeerId,
@@ -698,124 +701,25 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
                     }
                 }
-                consensus::graph::OutEvent::FinalizedTransaction {
+                consensus::graph::OutEvent::RecognizedTransaction {
                     from,
                     tx,
                     event_hash,
                 } => {
-                    // handle tx's:
-                    // track data locations, pull assigned shards
-                    match tx {
-                        Transaction::StorageRequest { data_id } => {
-                            debug!(
-                                target: Targets::DataDistribution.into_str(),
-                                "Recognized finalized storage request for {:?}", data_id
-                            );
-                            let event = data_memory::InEvent::StorageRequestTx(data_id, from);
-                            let send_future = self.data_memory.input.send(event.clone());
-                            pin_mut!(send_future);
-                            match send_future.poll(cx) {
-                                Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
-                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will lose track of stored shards."),
-                            }
-                        }
-                        // take a note that `(data_id, shard_id)` is stored at `location`
-                        Transaction::Stored(data_id, shard_id) => {
-                            debug!(
-                                target: Targets::DataDistribution.into_str(),
-                                "Recognized finalized storage confirmation for {:?} by {:?}", data_id, from
-                            );
-                            let event = data_memory::InEvent::StoreConfirmed {
-                                full_shard_id: (data_id, shard_id),
-                                location: from,
-                            };
-                            let send_future = self.data_memory.input.send(event.clone());
-                            pin_mut!(send_future);
-                            match send_future.poll(cx) {
-                                Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
-                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will lose track of stored shards."),
-                            }
-                        }
-                        Transaction::Execute(instructions) => {
-                            let program = match Program::new(instructions, event_hash.into()) {
-                                Ok(p) => p,
-                                Err(e) => cant_operate_error_return!(
-                                    "could not compute hash of a program: {}",
-                                    e
-                                ),
-                            };
-                            let identifier = program.identifier().clone();
-                            let send_future = self
-                                .instruction_memory
-                                .input
-                                .send(instruction_storage::InEvent::FinalizedProgram(program));
-                            pin_mut!(send_future);
-                            match send_future.poll(cx) {
-                                Poll::Ready(Ok(_)) => channel_log_send!(
-                                    "instruction_memory.input",
-                                    format!("FinalizedProgram(hash: {:?})", identifier)
-                                ),
-                                Poll::Ready(Err(_e)) => cant_operate_error_return!(
-                                    "other half of `instruction_memory.input` was closed. \
-                                        cannot operate without this module."
-                                ),
-                                Poll::Pending => cant_operate_error_return!(
-                                    "`instruction_memory.input` queue is full. \
-                                    continue will skip a transaction, which is unacceptable."
-                                ),
-                            }
-                        }
-                        Transaction::Executed(program_id) => {
-                            let event = instruction_storage::InEvent::ExecutedProgram {
-                                peer: from,
-                                program_id,
-                            };
-                            let send_future = self.instruction_memory.input.send(event.clone());
-                            pin_mut!(send_future);
-                            match send_future.poll(cx) {
-                                Poll::Ready(Ok(_)) => channel_log_send!(
-                                    "instruction_memory.input",
-                                    format!("{:?}", event)
-                                ),
-                                Poll::Ready(Err(_e)) => cant_operate_error_return!(
-                                    "other half of `instruction_memory.input` was closed. \
-                                        cannot operate without this module."
-                                ),
-                                Poll::Pending => cant_operate_error_return!(
-                                    "`instruction_memory.input` queue is full. continue will \
-                                    mess with confirmation of program execution, which is \
-                                    unacceptable."
-                                ),
-                            }
-                        }
-                        Transaction::InitializeStorage { distribution } => {
-                            debug!(
-                                target: Targets::StorageInitialization.into_str(),
-                                "Recognized finalized init transaction"
-                            );
-                            let send_future = self
-                                .data_memory
-                                .input
-                                .send(data_memory::InEvent::Initialize { distribution });
-                            pin_mut!(send_future);
-                            match send_future.poll(cx) {
-                                Poll::Ready(Ok(_)) => {
-                                    channel_log_send!("data_memory.input", "Initialize")
-                                }
-                                Poll::Ready(Err(_e)) => cant_operate_error_return!(
-                                    "other half of `data_memory.input` was closed. \
-                                        cannot operate without this module."
-                                ),
-                                Poll::Pending => cant_operate_error_return!(
-                                    "`data_memory.input` queue is full. continuing will \
-                                    lose track of stored shards."
-                                ),
-                            }
-                        }
-                    }
+                    info!("Recognized tx: {:?}", tx);
                 }
+                consensus::graph::OutEvent::FinalizedTransaction {
+                    from,
+                    tx,
+                    event_hash,
+                } => match self.handle_tx(cx, from, tx, event_hash) {
+                    handlers::HandleResult::Ok => (),
+                    handlers::HandleResult::Abort => {
+                        return Poll::Ready(libp2p::swarm::ToSwarm::GenerateEvent(Err(
+                            Error::UnableToOperate,
+                        )))
+                    }
+                },
             },
             Poll::Ready(None) => cant_operate_error_return!(
                 "other half of `consensus.output` was closed. cannot operate without this module."
