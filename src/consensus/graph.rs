@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::marker::PhantomData;
 use std::task::Poll;
 use std::{fmt::Debug, sync::Arc};
 
@@ -122,9 +123,11 @@ pin_project! {
     /// behaviour thus uses [`ModuleChannelClient`]).
     ///
     /// Use [`Self::from_graph()`] to create, [`Self::run()`] to operate.
+    #[project = GraphWrapperProjection]
     pub struct GraphWrapper<TDataId, TShardId, TSigner, TClock> {
         // todo: replace parentheses - ()
         inner: Graph<EventPayload<TDataId, TShardId>, GenesisPayload, PeerId, TSigner, TClock>,
+        // #[pin]
         state_updated: Arc<Notify>,
         included_transaction_buffer: Vec<Transaction<TDataId, TShardId, PeerId>>,
         retrieved_transaction_buffer: (PeerId, VecDeque<Transaction<TDataId, TShardId, PeerId>>, Hash),
@@ -221,9 +224,23 @@ where
     pub fn push_tx(&mut self, tx: Transaction<TDataId, TShardId, PeerId>) {
         self.included_transaction_buffer.push(tx);
     }
+
+    fn finalized_stream<'a>(
+        &'a mut self,
+    ) -> FinalizedTxStream<'a, TDataId, TShardId, TSigner, TClock> {
+        let self_ = std::pin::Pin::new(self);
+        let this = self_.project();
+        FinalizedTxStream { inner: this }
+    }
 }
 
-impl<TDataId, TShardId, TSigner, TClock> Stream for GraphWrapper<TDataId, TShardId, TSigner, TClock>
+struct FinalizedTxStream<'a, TDataId, TShardId, TSigner, TClock> {
+    inner: GraphWrapperProjection<'a, TDataId, TShardId, TSigner, TClock>,
+    // inner: std::pin::Pin<&'a mut GraphWrapper<TDataId, TShardId, TSigner, TClock>>,
+}
+
+impl<'a, TDataId, TShardId, TSigner, TClock> Stream
+    for FinalizedTxStream<'a, TDataId, TShardId, TSigner, TClock>
 where
     TDataId: Serialize + Eq + std::hash::Hash + Debug + Clone,
     TShardId: Serialize + Eq + std::hash::Hash + Debug + Clone,
@@ -233,10 +250,10 @@ where
     type Item = (PeerId, Transaction<TDataId, TShardId, PeerId>, Hash);
 
     fn poll_next(
-        self: std::pin::Pin<&mut Self>,
+        mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        let this = self.project();
+        let this = &mut self.inner;
 
         // wake up if something changed
         let state_updated_notification = this.state_updated.notified();
@@ -284,8 +301,9 @@ where
 {
     pub async fn run(mut self, mut connection: ModuleChannelServer<Module>) {
         loop {
+            let mut finalized_stream = self.finalized_stream();
             tokio::select! {
-                next_tx = self.next() => {
+                next_tx = finalized_stream.next() => {
                     let Some((from, tx, event_hash)) = next_tx else {
                         info!("stream of events ended, shuttung down consensus");
                         return;
