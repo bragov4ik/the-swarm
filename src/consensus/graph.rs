@@ -310,7 +310,7 @@ where
         Self::next_tx(
             this.inner,
             |inner| inner.next_recognized_event(),
-            this.finalized_transaction_buffer,
+            this.recognized_transaction_buffer,
         )
         .map(|d| NextTx::Recognized(d))
     }

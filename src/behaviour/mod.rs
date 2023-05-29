@@ -712,14 +712,17 @@ impl NetworkBehaviour for Behaviour {
                     from,
                     tx,
                     event_hash,
-                } => match self.handle_tx(cx, from, tx, event_hash) {
-                    handlers::HandleResult::Ok => (),
-                    handlers::HandleResult::Abort => {
-                        return Poll::Ready(libp2p::swarm::ToSwarm::GenerateEvent(Err(
-                            Error::UnableToOperate,
-                        )))
+                } => {
+                    info!("Finalized tx: {:?}", tx);
+                    match self.handle_tx(cx, from, tx, event_hash) {
+                        handlers::HandleResult::Ok => (),
+                        handlers::HandleResult::Abort => {
+                            return Poll::Ready(libp2p::swarm::ToSwarm::GenerateEvent(Err(
+                                Error::UnableToOperate,
+                            )))
+                        }
                     }
-                },
+                }
             },
             Poll::Ready(None) => cant_operate_error_return!(
                 "other half of `consensus.output` was closed. cannot operate without this module."
