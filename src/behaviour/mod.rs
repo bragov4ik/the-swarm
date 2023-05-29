@@ -365,6 +365,7 @@ impl NetworkBehaviour for Behaviour {
 
             match self.oneshot_messages.pop_back() {
                 Some(s) => {
+                    trace!("Got a simple message");
                     match s.event {
                         SimpleMessage(protocol::Simple::GossipGraph(sync)) => {
                             channel_log_recv!(
@@ -393,6 +394,7 @@ impl NetworkBehaviour for Behaviour {
             break;
         }
 
+        trace!("Checking data memory events");
         match self.data_memory.output.poll_recv(cx) {
             Poll::Ready(Some(event)) => match event {
                 data_memory::OutEvent::ServeShardRequest(full_shard_id, location) => {
@@ -559,6 +561,7 @@ impl NetworkBehaviour for Behaviour {
         }
 
         // TODO: check if futures::select! is applicable to avoid starvation (??)
+        trace!("Checking UI events");
         match self.user_interaction.input.poll_recv(cx) {
             Poll::Ready(Some(event)) => match event {
                 InEvent::ScheduleProgram(instructions) => {
@@ -643,6 +646,7 @@ impl NetworkBehaviour for Behaviour {
             Poll::Pending => (),
         }
 
+        trace!("Checking processor events");
         match self.processor.output.poll_recv(cx) {
             Poll::Ready(Some(single_threaded::OutEvent::FinishedExecution { program_id, results })) => {
                 debug!("Finished executing program {:?}\nResults: {:?}", program_id.clone(), results);
@@ -660,6 +664,7 @@ impl NetworkBehaviour for Behaviour {
         }
 
         if self.processor.accepts_input() {
+            trace!("Checking instruction memory events");
             match self.instruction_memory.output.poll_recv(cx) {
                 Poll::Ready(Some(event)) => {
                     match event {
@@ -687,8 +692,11 @@ impl NetworkBehaviour for Behaviour {
                 Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),
                 Poll::Pending => (),
             }
+        } else {
+            trace!("Processor is busy, not polling instruction memory");
         }
 
+        trace!("Checking consensus events");
         match self.consensus.output.poll_recv(cx) {
             Poll::Ready(Some(event)) => match event {
                 consensus::graph::OutEvent::GenerateSyncResponse { to, sync } => {
@@ -805,6 +813,7 @@ impl NetworkBehaviour for Behaviour {
             }
         }
 
+        trace!("Checking request&response events");
         match self.request_response.output.poll_recv(cx) {
             Poll::Ready(Some(e)) => {
                 match e {
@@ -913,6 +922,7 @@ impl NetworkBehaviour for Behaviour {
             Poll::Pending => (),
         }
 
+        trace!("Checked everything for now, pending");
         Poll::Pending
     }
 }
