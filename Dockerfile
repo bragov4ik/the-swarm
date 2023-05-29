@@ -12,20 +12,21 @@ RUN --mount=type=cache,target=/root/.cargo/registry --mount=type=cache,target=/v
     cp target/release/the-swarm app
 
 
-FROM alpine:3.16.2
+FROM debian:11
 
 WORKDIR /app
 COPY --from=build /volume/app ./app_rust
 COPY the-swarm/data.json the-swarm/program.json ./input/
 
-RUN adduser nonroot -D -H && \
+RUN adduser nonroot && \
     chown -R nonroot ./ && \
     chmod 0700 ./ && \
     chmod 0500 ./app_rust && \
     mkdir logs && \
     chown nonroot logs/
 
-# This user is already included in the image
 USER nonroot
+
+ENV RUST_LOG=info
 
 ENTRYPOINT [ "./app_rust" ]
