@@ -48,7 +48,10 @@ use crate::{
 };
 pub use module::{InEvent, Module, OutEvent};
 
+use self::metrics::Metrics;
+
 mod handlers;
+mod metrics;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -69,6 +72,8 @@ mod module {
         types::{Data, Sid, Vid},
     };
 
+    use super::metrics::Metrics;
+
     pub struct Module;
 
     impl crate::module::Module for Module {
@@ -85,6 +90,7 @@ mod module {
         Put(Vid, Data),
         ListStored,
         InitializeStorage,
+        GetMetrics,
     }
 
     #[derive(Debug, Clone)]
@@ -96,6 +102,7 @@ mod module {
         PutConfirmed(Vid),
         ListStoredResponse(Vec<(Vid, HashMap<Sid, PeerId>)>),
         StorageInitialized,
+        GetMetricsResponse(Metrics),
     }
 }
 
@@ -144,6 +151,8 @@ pub struct Behaviour {
 
     // notification to poll() to wake up and try to do some progress
     state_updated: Arc<Notify>,
+
+    metrics: Metrics,
 }
 
 impl Behaviour {
@@ -174,6 +183,7 @@ impl Behaviour {
             pending_response: HashMap::new(),
             processed_requests: HashMap::new(),
             state_updated: Arc::new(Notify::new()),
+            metrics: Metrics::new(),
         }
     }
 
@@ -612,6 +622,18 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
                     }
+                },
+                InEvent::GetMetrics => {
+                    let metrics = self.metrics.clone();
+                    let send_future = self.user_interaction.output.send(
+                        OutEvent::GetMetricsResponse(metrics)
+                    );
+                    pin_mut!(send_future);
+                    match send_future.poll(cx) {
+                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", "ListDistributed"),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
+                    }
                 }
             },
             Poll::Ready(None) => cant_operate_error_return!("`user_interaction.input` (at client) was closed. not intended to operate without interaction with user."),
@@ -668,6 +690,7 @@ impl NetworkBehaviour for Behaviour {
             Poll::Ready(Some(event)) => match event {
                 consensus::graph::OutEvent::GenerateSyncResponse { to, sync } => {
                     debug!("Sending sync to {}", to);
+                    self.metrics.sync.record_end();
                     return Poll::Ready(ToSwarm::NotifyHandler {
                         peer_id: to,
                         handler: NotifyHandler::Any,
@@ -760,7 +783,10 @@ impl NetworkBehaviour for Behaviour {
                     let send_future = self.consensus.input.send(event.clone());
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", format!("{:?}", event)),
+                        Poll::Ready(Ok(_)) => {
+                            channel_log_send!("consensus.input", format!("{:?}", event));
+                            self.metrics.sync.record_start();
+                        },
                         Poll::Ready(Err(_e)) => cant_operate_error_return!(
                             "other half of `consensus.input` was closed. cannot operate without this module."
                         ),

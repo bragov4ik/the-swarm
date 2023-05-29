@@ -1,5 +1,5 @@
 use easy_repl::{validator, CommandStatus, Repl};
-use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -10,7 +10,7 @@ use crate::{
     types::Vid,
 };
 
-async fn print_responses(mut output: mpsc::Receiver<behaviour::OutEvent>) {
+async fn handle_responses(mut output: Receiver<behaviour::OutEvent>) {
     while let Some(next) = output.recv().await {
         println!("{:?}", next)
     }
@@ -34,6 +34,11 @@ async fn handle_schedule_exec(filename: &str, input: &Sender<InEvent>) -> anyhow
     input
         .send(InEvent::ScheduleProgram(program.instructions))
         .await?;
+    Ok(())
+}
+
+async fn handle_metrics_print(input: &Sender<InEvent>) -> anyhow::Result<()> {
+    input.send(InEvent::GetMetrics).await?;
     Ok(())
 }
 
@@ -128,6 +133,19 @@ pub fn run_repl(
                 }),
             },
         )
+        .add(
+            "metrics_print",
+            easy_repl::Command {
+                description: "Print metrics to the terminal".into(),
+                args_info: vec![],
+                handler: Box::new(|args| {
+                    if let Err(e) = rt.block_on(handle_metrics_print(&input)) {
+                        warn!("could not proceed with request: {}", e)
+                    }
+                    Ok(CommandStatus::Done)
+                }),
+            },
+        )
         .build()
         .expect("Failed to create repl");
 
@@ -137,7 +155,7 @@ pub fn run_repl(
             .enable_all()
             .build()
             .expect("couldn't create an async runtime for repl");
-        rt.block_on(print_responses(output))
+        rt.block_on(handle_responses(output))
     });
 
     repl.run().expect("failed to run repl");
