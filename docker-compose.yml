@@ -1,0 +1,21 @@
+version: "3.9"
+
+x-node: &node
+  build:
+    context: ./
+    dockerfile: ./the-swarm/Dockerfile
+  volumes:
+    - ./logs/docker:/app/logs
+
+services:
+  ui-node:
+    <<: *node
+    stdin_open: true
+    tty: true
+  node-1:
+    <<: *node
+    tty: true
+  node-2:
+    <<: *node
+    tty: true
+
