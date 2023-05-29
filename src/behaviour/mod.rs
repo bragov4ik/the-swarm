@@ -139,7 +139,7 @@ pub struct Behaviour {
     consensus_gossip_timeout: Duration,
 
     // connection stuff
-    oneshot_events: VecDeque<ConnectionEventWrapper<InnerMessage>>,
+    oneshot_messages: VecDeque<ConnectionEventWrapper<SimpleMessage>>,
     pending_response: HashMap<RequestId, Request>,
     processed_requests: HashMap<
         Request,
@@ -179,7 +179,7 @@ impl Behaviour {
             rng: rand::thread_rng(),
             consensus_gossip_timer: Box::pin(sleep(consensus_gossip_timeout)),
             consensus_gossip_timeout,
-            oneshot_events: VecDeque::new(),
+            oneshot_messages: VecDeque::new(),
             pending_response: HashMap::new(),
             processed_requests: HashMap::new(),
             state_updated: Arc::new(Notify::new()),
@@ -314,10 +314,14 @@ impl NetworkBehaviour for Behaviour {
         connection: libp2p::swarm::ConnectionId,
         event: libp2p::swarm::THandlerOutEvent<Self>,
     ) {
-        self.oneshot_events.push_front(ConnectionEventWrapper {
+        let InnerMessage::Rx(m) = event else {
+            trace!("Sent simple successfully");
+            return;
+        };
+        self.oneshot_messages.push_front(ConnectionEventWrapper {
             peer_id,
             _connection: connection,
-            event,
+            event: m,
         });
         self.state_updated.notify_one();
     }
@@ -359,11 +363,10 @@ impl NetworkBehaviour for Behaviour {
             // Maybe break on Pending?
             let _ = state_updated_notification.poll(cx);
 
-            match self.oneshot_events.pop_back() {
-                // serve shard, recieve shard, recieve gossip,
+            match self.oneshot_messages.pop_back() {
                 Some(s) => {
                     match s.event {
-                        InnerMessage::Rx(SimpleMessage(protocol::Simple::GossipGraph(sync))) => {
+                        SimpleMessage(protocol::Simple::GossipGraph(sync)) => {
                             channel_log_recv!(
                                 "network.simple",
                                 format!("GossipGraph(from: {:?})", &s.peer_id)
@@ -382,7 +385,6 @@ impl NetworkBehaviour for Behaviour {
                                 Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will apply received sync. for now fail fast to see this."),
                             }
                         }
-                        InnerMessage::Sent => trace!("Sent simple successfully"),
                     }
                     continue;
                 }
