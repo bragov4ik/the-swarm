@@ -1,18 +1,82 @@
+use std::collections::HashMap;
+
 use easy_repl::{validator, CommandStatus, Repl};
+use libp2p::PeerId;
+use textplots::{Chart, Plot, Shape};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::{
-    behaviour::{self, InEvent},
+    behaviour::{self, metrics::Metrics, InEvent},
     io::{read_input, InputData, InputProgram},
     module::ModuleChannelClient,
-    types::Vid,
+    types::{Sid, Vid},
 };
+
+fn print_all_stored(list: Vec<(Vid, HashMap<Sid, PeerId>)>) {
+    println!("\nAll data known to be stored in the network:");
+    for (id, shards) in list {
+        println!("{:?}", id);
+        for (shard_id, peer_id) in shards {
+            println!("\t{:?} - {:?}", shard_id, peer_id);
+        }
+        println!();
+    }
+}
+
+fn print_metrics_field(name: String, data_points: Vec<(f32, f32)>) {
+    println!("{}", name);
+    let Some((t_last, _)) = data_points.last() else {
+        return
+    };
+    Chart::new(120, 60, (t_last - 60f32).max(0f32), *t_last)
+        .lineplot(&Shape::Steps(&data_points))
+        .display();
+    println!();
+}
+
+fn print_metrics(metrics: Metrics) {
+    println!("\nMetrics:");
+    let Some((t_start, _)) = metrics.sync.get_data().get(0) else {
+        return
+    };
+    let data = metrics
+        .sync
+        .get_data()
+        .iter()
+        .flat_map(|(t, y)| {
+            let event_triggered = t.duration_since(*t_start);
+            let event_finished = event_triggered + *y;
+            vec![
+                (event_triggered.as_secs_f32(), 0f32),
+                (event_finished.as_secs_f32(), 1f32),
+            ]
+            .into_iter()
+        })
+        .collect();
+    print_metrics_field("Sync generation".to_string(), data)
+}
 
 async fn handle_responses(mut output: Receiver<behaviour::OutEvent>) {
     while let Some(next) = output.recv().await {
-        println!("{:?}", next)
+        match next {
+            behaviour::OutEvent::ScheduleOk => println!("Program scheduled successfully"),
+            behaviour::OutEvent::ProgramExecuted(id) => {
+                println!("Program {:?} finished execution", id)
+            }
+            behaviour::OutEvent::GetResponse(Ok(data)) => {
+                println!("Retrieved data with id {:?}: {:?}", data.0, data.1)
+            }
+            behaviour::OutEvent::GetResponse(Err(e)) => println!("Could not recollect data: {}", e),
+            behaviour::OutEvent::PutConfirmed(id) => println!(
+                "Data with id {:?} was successfully distributed across the network",
+                id
+            ),
+            behaviour::OutEvent::ListStoredResponse(list) => print_all_stored(list),
+            behaviour::OutEvent::StorageInitialized => println!("Storage initialized"),
+            behaviour::OutEvent::GetMetricsResponse(metrics) => print_metrics(metrics),
+        }
     }
 }
 
@@ -138,7 +202,7 @@ pub fn run_repl(
             easy_repl::Command {
                 description: "Print metrics to the terminal".into(),
                 args_info: vec![],
-                handler: Box::new(|args| {
+                handler: Box::new(|_| {
                     if let Err(e) = rt.block_on(handle_metrics_print(&input)) {
                         warn!("could not proceed with request: {}", e)
                     }

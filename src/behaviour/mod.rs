@@ -51,7 +51,7 @@ pub use module::{InEvent, Module, OutEvent};
 use self::metrics::Metrics;
 
 mod handlers;
-mod metrics;
+pub mod metrics;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -352,6 +352,7 @@ impl NetworkBehaviour for Behaviour {
         }
 
         // todo: reconsider ordering
+        trace!("Checking incoming simple messages");
         loop {
             let state_updated_notification = self.state_updated.notified();
             pin_mut!(state_updated_notification);
