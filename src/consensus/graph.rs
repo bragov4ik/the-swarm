@@ -376,6 +376,7 @@ where
                         InEvent::GenerateSyncRequest { to } => {
                             debug!("Generating sync for {:?}", to);
                             connection.set_state(ModuleState::Busy);
+                            trace!("Set consensus state to busy");
                             let sync = match self.inner.generate_sync_for(&to) {
                                 Ok(s) => s,
                                 Err(e) => {
@@ -384,7 +385,9 @@ where
                                     return;
                                 },
                             };
+                            trace!("Set consensus state to ready");
                             connection.set_state(ModuleState::Ready);
+                            trace!("Generated sync successfully");
                             // todo: maybe use `try_send` or `reserve` on each send
                             if let Err(_) = connection.output.send(OutEvent::GenerateSyncResponse { to, sync }).await {
                                 error!("`connection.output` is closed, shuttung down consensus");
@@ -392,20 +395,27 @@ where
                             }
                         },
                         InEvent::KnownPeersRequest => {
+                            trace!("Returning list of known peers");
                             if let Err(_) = connection.output.send(OutEvent::KnownPeersResponse(self.inner.peers())).await {
                                 error!("`connection.output` is closed, shuttung down consensus");
                                 return;
                             }
                         }
                         InEvent::ApplySync { from, sync } => {
+                            trace!("Applying sync from: {:?}", from);
                             connection.set_state(ModuleState::Busy);
+                            trace!("Set consensus state to busy");
                             let apply_result = self.apply_sync(from, sync);
+                            trace!("Set consensus state to ready");
                             connection.set_state(ModuleState::Ready);
                             if let Err(e) = apply_result {
                                 warn!("Failed to apply sync from peer {}: {}", from, e);
+                            } else{
+                                trace!("Applied sync successfully");
                             }
                         },
                         InEvent::ScheduleTx(tx) => {
+                            trace!("Scheduling transaction: {:?}", tx);
                             match &tx {
                                 Transaction::InitializeStorage { distribution: _ } =>
                                 debug!(target: Targets::StorageInitialization.into_str(), "Scheduling init transaction for inclusion in event"),
@@ -414,6 +424,7 @@ where
                             self.push_tx(tx);
                         },
                         InEvent::CreateStandalone => {
+                            debug!("Creating a standalone event");
                             if let Err(e) = self.create_standalone_event() {
                                 warn!("Failed to create standalone event: {}", e);
                             }
