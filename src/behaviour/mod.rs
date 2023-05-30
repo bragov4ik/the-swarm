@@ -385,6 +385,10 @@ impl NetworkBehaviour for Behaviour {
                                 Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                                 Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will apply received sync. for now fail fast to see this."),
                             }
+                            Metrics::update_queue_size(
+                                &self.consensus.input,
+                                &mut self.metrics.consensus_queue_size,
+                            );
                         }
                     }
                     continue;
@@ -459,6 +463,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on storing shard. for now fail fast to see this."),
                     }
+                    Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
                 }
                 data_memory::OutEvent::AssignedResponse(full_shard_id, shard) => {
                     let request = protocol::Request::GetShard(full_shard_id);
@@ -515,6 +520,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
                     }
+                    Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
                 },
                 data_memory::OutEvent::AssignedRequest(full_shard_id, location) => {
                     let request = protocol::Request::GetShard(full_shard_id);
@@ -574,6 +580,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
                     }
+                    Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
                     let send_future = self.user_interaction.output.send(
                         module::OutEvent::ScheduleOk
                     );
@@ -628,6 +635,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
                     }
+                    Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
                 },
                 InEvent::GetMetrics => {
                     let metrics = self.metrics.clone();
@@ -658,6 +666,7 @@ impl NetworkBehaviour for Behaviour {
                     Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                     Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
                 }
+                Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
             }
             Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),
             Poll::Pending => (),
@@ -734,6 +743,10 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
                     }
+                    Metrics::update_queue_size(
+                        &self.consensus.input,
+                        &mut self.metrics.consensus_queue_size,
+                    );
                 }
                 consensus::graph::OutEvent::RecognizedTransaction {
                     from,
@@ -807,6 +820,10 @@ impl NetworkBehaviour for Behaviour {
                             as it is likely to worsen distributed system responsiveness."
                         ),
                     }
+                    Metrics::update_queue_size(
+                        &self.consensus.input,
+                        &mut self.metrics.consensus_queue_size,
+                    );
                 } else {
                     warn!("Time to send gossip but no peers found, idling...");
                 }

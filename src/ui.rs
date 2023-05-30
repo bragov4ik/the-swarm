@@ -38,24 +38,17 @@ fn print_metrics_field(name: String, data_points: Vec<(f32, f32)>) {
 
 fn print_metrics(metrics: Metrics) {
     println!("\nMetrics:");
-    let Some((t_start, _)) = metrics.sync.get_data().get(0) else {
-        return
-    };
+    print_metrics_field(
+        "Sync generation".to_string(),
+        metrics.sync.generate_data_for_step(),
+    );
     let data = metrics
-        .sync
-        .get_data()
-        .iter()
-        .flat_map(|(t, y)| {
-            let event_triggered = t.duration_since(*t_start);
-            let event_finished = event_triggered + *y;
-            vec![
-                (event_triggered.as_secs_f32(), 0f32),
-                (event_finished.as_secs_f32(), 1f32),
-            ]
-            .into_iter()
-        })
+        .consensus_queue_size
+        .generate_data_for_step()
+        .into_iter()
+        .map(|(t, size)| (t, size as f32))
         .collect();
-    print_metrics_field("Sync generation".to_string(), data)
+    print_metrics_field("Consensus input queue".to_string(), data);
 }
 
 async fn handle_responses(mut output: Receiver<behaviour::OutEvent>) {
