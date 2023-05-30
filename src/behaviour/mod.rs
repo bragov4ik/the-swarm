@@ -782,26 +782,26 @@ impl NetworkBehaviour for Behaviour {
             if let Poll::Ready(_) = self.consensus_gossip_timer.as_mut().poll(cx) {
                 let random_peer = self.get_random_peer();
 
-                // Since we're on it - make a standalone event
-                let send_future = self
-                    .consensus
-                    .input
-                    .send(consensus::graph::InEvent::CreateStandalone);
-                pin_mut!(send_future);
-                match send_future.poll(cx) {
-                    Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", "CreateStandalone"),
-                    Poll::Ready(Err(_e)) => cant_operate_error_return!(
-                        "other half of `consensus.input` was closed. cannot operate without this module."
-                    ),
-                    Poll::Pending => warn!(
-                        "`consensus.input` queue is full. skipping making a standalone event. \
-                        might lead to higher latency in scheduled tx inclusion."
-                    ),
-                };
-
                 // Time to send another one
                 self.consensus_gossip_timer = Box::pin(sleep(self.consensus_gossip_timeout));
                 if let Some(random_peer) = random_peer {
+                    trace!("Before gossip make a standalone event");
+                    let send_future = self
+                        .consensus
+                        .input
+                        .send(consensus::graph::InEvent::CreateStandalone);
+                    pin_mut!(send_future);
+                    match send_future.poll(cx) {
+                        Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", "CreateStandalone"),
+                        Poll::Ready(Err(_e)) => cant_operate_error_return!(
+                            "other half of `consensus.input` was closed. cannot operate without this module."
+                        ),
+                        Poll::Pending => warn!(
+                            "`consensus.input` queue is full. skipping making a standalone event. \
+                            might lead to higher latency in scheduled tx inclusion."
+                        ),
+                    };
+
                     debug!("Chose {:?} for random gossip", random_peer);
                     let event = consensus::graph::InEvent::GenerateSyncRequest { to: random_peer };
                     let send_future = self.consensus.input.send(event.clone());
