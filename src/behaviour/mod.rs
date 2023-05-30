@@ -699,6 +699,19 @@ impl NetworkBehaviour for Behaviour {
                                     Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
                                 }
                             },
+                            instruction_storage::OutEvent::PeerShardsActualized {
+                                program_id: _, peer, updated_data_ids
+                            } => {
+                                let event = data_memory::InEvent::PeerShardsActualized { peer, updated_data_ids };
+                                channel_log_send!("data_memory.input", format!("{:?}", event));
+                                let send_future = self.data_memory.input.send(event);
+                                pin_mut!(send_future);
+                                match send_future.poll(cx) {
+                                    Poll::Ready(Ok(_)) => (),
+                                    Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                    Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
+                                }
+                            },
                         }
                     }
                     Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),

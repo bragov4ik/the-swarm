@@ -131,6 +131,12 @@ pub enum InEvent {
     // data recollection
     /// Recollect data with given id, request by user
     RecollectRequest(Vid),
+
+    // program execution updates
+    PeerShardsActualized {
+        peer: PeerId,
+        updated_data_ids: Vec<Vid>,
+    },
 }
 
 pub struct MemoryBus {
@@ -246,7 +252,8 @@ impl UninitializedDataMemory {
                         | InEvent::AssignedRequest(_)
                         | InEvent::ListDistributed
                         | InEvent::RecollectRequest(_)
-                        | InEvent::AssignedResponse(_, _) => warn!("have not initialized storage, ignoring request {:?}", in_event),
+                        | InEvent::AssignedResponse(_, _)
+                        | InEvent::PeerShardsActualized { peer: _, updated_data_ids: _ } => warn!("have not initialized storage, ignoring request {:?}", in_event),
                     }
 
                 }
@@ -331,11 +338,11 @@ impl InitializedDataMemory {
         if let Some(distributed_shards) = self.to_distribute.get_mut(&full_shard_id.0) {
             distributed_shards.remove(&full_shard_id.1);
         }
-        if let Some(expected_location) = self.distribution.get(&location) {
-            if expected_location != &full_shard_id.1 {
+        if let Some(expected_shard_id) = self.distribution.get(&location) {
+            if expected_shard_id != &full_shard_id.1 {
                 warn!(
                     "observed shard at unexpected location. observed at {:?}, expected at {:?}",
-                    &full_shard_id.1, expected_location
+                    &full_shard_id.1, expected_shard_id
                 );
             }
         } else {
@@ -663,6 +670,20 @@ impl InitializedDataMemory {
                                 },
                             }
                         },
+                        InEvent::PeerShardsActualized { peer, updated_data_ids } => {
+                            let Some(expected_shard_id) = self.distribution.get(&peer) else {
+                                warn!("Received program execution notification but the peer \
+                                is not assigned any shards. It shouldn't've send it.");
+                                return;
+                            };
+                            for data_id in updated_data_ids {
+                                let shards = self
+                                    .data_known_locations
+                                    .entry(data_id)
+                                    .or_default();
+                                shards.insert(expected_shard_id.clone(), peer);
+                            }
+                        }
                     }
                 }
                 data_request = self.bus.reads.recv() => {
