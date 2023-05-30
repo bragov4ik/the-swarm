@@ -31,16 +31,12 @@ use crate::{
     consensus::{self, Transaction},
     data_memory, instruction_storage,
     logging_helpers::Targets,
-    processor::{
-        single_threaded::{self},
-        Program,
-    },
+    processor::single_threaded::{self},
     protocol::{
         self,
         one_shot::{InnerMessage, SimpleMessage, SwarmOneShot},
         Request,
     },
-    types::Vid,
 };
 use crate::{
     module::{ModuleChannelClient, ModuleChannelServer},
@@ -399,382 +395,393 @@ impl NetworkBehaviour for Behaviour {
         }
 
         trace!("Checking data memory events");
-        match self.data_memory.output.poll_recv(cx) {
-            Poll::Ready(Some(event)) => match event {
-                data_memory::OutEvent::ServeShardRequest(full_shard_id, location) => {
-                    debug!(
-                        target: Targets::DataDistribution.into_str(),
-                        "Sending serve request for {:?}", full_shard_id
-                    );
-                    let request = protocol::Request::ServeShard(full_shard_id);
-                    channel_log_send!("network.request", format!("{:?}", request));
-                    let send_future = self.request_response
-                        .input
-                        .send(crate::request_response::InEvent::MakeRequest{
-                            request: request.clone(),
-                            to: location,
-                        });
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("network.request", format!("{:?}", request)),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `network.request` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`network.request` queue is full. continuing will drop our request. for now fail fast to see this."),
-                    }
-                },
-                data_memory::OutEvent::ServeShardResponse(full_shard_id, shard) => {
-                    debug!(
-                        target: Targets::DataDistribution.into_str(),
-                        "Responding to ServeShard request for {:?}, shard is_some={:?}", full_shard_id, shard.is_some()
-                    );
-                    let request = protocol::Request::ServeShard(full_shard_id.clone());
-                    let response = protocol::Response::ServeShard(shard);
-                    let waiting_for_response = self.processed_requests.remove(&request).unwrap_or_default();
-                    for (request_id, sender) in waiting_for_response {
+        loop {
+            match self.data_memory.output.poll_recv(cx) {
+                Poll::Ready(Some(event)) => match event {
+                    data_memory::OutEvent::ServeShardRequest(full_shard_id, location) => {
                         debug!(
                             target: Targets::DataDistribution.into_str(),
-                            "Serving shard {:?} for request {:?}", full_shard_id, request_id
+                            "Sending serve request for {:?}", full_shard_id
                         );
-                        channel_log_send!("network.response", format!("{:?}", request));
+                        let request = protocol::Request::ServeShard(full_shard_id);
+                        channel_log_send!("network.request", format!("{:?}", request));
                         let send_future = self.request_response
                             .input
-                            .send(crate::request_response::InEvent::Respond {
-                                request_id: request_id,
-                                channel: sender,
-                                response: response.clone(),
+                            .send(crate::request_response::InEvent::MakeRequest{
+                                request: request.clone(),
+                                to: location,
                             });
                         pin_mut!(send_future);
                         match send_future.poll(cx) {
-                            Poll::Ready(Ok(_)) => channel_log_send!("network.response", format!("{:?}", response)),
-                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `network.response` was closed. cannot operate without this module."),
-                            Poll::Pending => cant_operate_error_return!("`network.response` queue is full. continuing will ignore someone's request. for now fail fast to see this."),
+                            Poll::Ready(Ok(_)) => channel_log_send!("network.request", format!("{:?}", request)),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `network.request` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`network.request` queue is full. continuing will drop our request. for now fail fast to see this."),
                         }
+                    },
+                    data_memory::OutEvent::ServeShardResponse(full_shard_id, shard) => {
+                        debug!(
+                            target: Targets::DataDistribution.into_str(),
+                            "Responding to ServeShard request for {:?}, shard is_some={:?}", full_shard_id, shard.is_some()
+                        );
+                        let request = protocol::Request::ServeShard(full_shard_id.clone());
+                        let response = protocol::Response::ServeShard(shard);
+                        let waiting_for_response = self.processed_requests.remove(&request).unwrap_or_default();
+                        for (request_id, sender) in waiting_for_response {
+                            debug!(
+                                target: Targets::DataDistribution.into_str(),
+                                "Serving shard {:?} for request {:?}", full_shard_id, request_id
+                            );
+                            channel_log_send!("network.response", format!("{:?}", request));
+                            let send_future = self.request_response
+                                .input
+                                .send(crate::request_response::InEvent::Respond {
+                                    request_id: request_id,
+                                    channel: sender,
+                                    response: response.clone(),
+                                });
+                            pin_mut!(send_future);
+                            match send_future.poll(cx) {
+                                Poll::Ready(Ok(_)) => channel_log_send!("network.response", format!("{:?}", response)),
+                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `network.response` was closed. cannot operate without this module."),
+                                Poll::Pending => cant_operate_error_return!("`network.response` queue is full. continuing will ignore someone's request. for now fail fast to see this."),
+                            }
+                        }
+                    },
+                    data_memory::OutEvent::AssignedStoreSuccess(full_shard_id) => {
+                        debug!(
+                            target: Targets::DataDistribution.into_str(),
+                            "Notifying other nodes that we store shard {:?} via consensus tx", full_shard_id
+                        );
+                        let event = consensus::graph::InEvent::ScheduleTx(Transaction::Stored(full_shard_id.0, full_shard_id.1));
+                        let send_future = self.consensus.input.send(event.clone());
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", format!("{:?}", event)),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on storing shard. for now fail fast to see this."),
+                        }
+                        Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
                     }
-                },
-                data_memory::OutEvent::AssignedStoreSuccess(full_shard_id) => {
-                    debug!(
-                        target: Targets::DataDistribution.into_str(),
-                        "Notifying other nodes that we store shard {:?} via consensus tx", full_shard_id
-                    );
-                    let event = consensus::graph::InEvent::ScheduleTx(Transaction::Stored(full_shard_id.0, full_shard_id.1));
-                    let send_future = self.consensus.input.send(event.clone());
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", format!("{:?}", event)),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on storing shard. for now fail fast to see this."),
-                    }
-                    Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
-                }
-                data_memory::OutEvent::AssignedResponse(full_shard_id, shard) => {
-                    let request = protocol::Request::GetShard(full_shard_id);
-                    let response = protocol::Response::GetShard(shard);
-                    let waiting_for_response = self.processed_requests.remove(&request).unwrap_or_default();
-                    for (request_id, sender) in waiting_for_response {
-                        channel_log_send!("network.response", format!("{:?}", request));
+                    data_memory::OutEvent::AssignedResponse(full_shard_id, shard) => {
+                        let request = protocol::Request::GetShard(full_shard_id);
+                        let response = protocol::Response::GetShard(shard);
+                        let waiting_for_response = self.processed_requests.remove(&request).unwrap_or_default();
+                        for (request_id, sender) in waiting_for_response {
+                            channel_log_send!("network.response", format!("{:?}", request));
+                            let send_future = self.request_response
+                                .input
+                                .send(crate::request_response::InEvent::Respond {
+                                    request_id: request_id,
+                                    channel: sender,
+                                    response: response.clone(),
+                                });
+                            pin_mut!(send_future);
+                            match send_future.poll(cx) {
+                                Poll::Ready(Ok(_)) => channel_log_send!("network.response", format!("{:?}", response)),
+                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `network.response` was closed. cannot operate without this module."),
+                                Poll::Pending => cant_operate_error_return!("`network.response` queue is full. continuing will ignore someone's request. for now fail fast to see this."),
+                            }
+                        }
+                    },
+                    data_memory::OutEvent::DistributionSuccess(data_id) => {
+                        let event = module::OutEvent::PutConfirmed(data_id);
+                        let send_future = self.user_interaction.output.send(event.clone());
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", format!("{:?}", event)),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
+                        }
+                    },
+                    data_memory::OutEvent::ListDistributed(list) => {
+                        let send_future = self.user_interaction.output.send(
+                            module::OutEvent::ListStoredResponse(list)
+                        );
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", "ListStoredResponse"),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
+                        }
+                    },
+                    data_memory::OutEvent::PreparedServiceResponse(data_id) => {
+                        debug!(
+                            target: Targets::DataDistribution.into_str(),
+                            "Placing storage request for {:?} onto consensus to notify peers", data_id
+                        );
+                        let event = consensus::graph::InEvent::ScheduleTx(Transaction::StorageRequest { data_id });
+                        let send_future = self.consensus.input.send(event.clone());
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", format!("{:?}", event)),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
+                        }
+                        Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
+                    },
+                    data_memory::OutEvent::AssignedRequest(full_shard_id, location) => {
+                        let request = protocol::Request::GetShard(full_shard_id);
+                        channel_log_send!("network.request", format!("{:?}", request));
                         let send_future = self.request_response
                             .input
-                            .send(crate::request_response::InEvent::Respond {
-                                request_id: request_id,
-                                channel: sender,
-                                response: response.clone(),
+                            .send(crate::request_response::InEvent::MakeRequest{
+                                request: request.clone(),
+                                to: location,
                             });
                         pin_mut!(send_future);
                         match send_future.poll(cx) {
-                            Poll::Ready(Ok(_)) => channel_log_send!("network.response", format!("{:?}", response)),
-                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `network.response` was closed. cannot operate without this module."),
-                            Poll::Pending => cant_operate_error_return!("`network.response` queue is full. continuing will ignore someone's request. for now fail fast to see this."),
+                            Poll::Ready(Ok(_)) => channel_log_send!("network.request", format!("{:?}", request)),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `network.request` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`network.request` queue is full. continuing will drop our request. for now fail fast to see this."),
                         }
-                    }
-                },
-                data_memory::OutEvent::DistributionSuccess(data_id) => {
-                    let event = module::OutEvent::PutConfirmed(data_id);
-                    let send_future = self.user_interaction.output.send(event.clone());
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", format!("{:?}", event)),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
-                    }
-                },
-                data_memory::OutEvent::ListDistributed(list) => {
-                    let send_future = self.user_interaction.output.send(
-                        module::OutEvent::ListStoredResponse(list)
-                    );
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", "ListStoredResponse"),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
-                    }
-                },
-                data_memory::OutEvent::PreparedServiceResponse(data_id) => {
-                    debug!(
-                        target: Targets::DataDistribution.into_str(),
-                        "Placing storage request for {:?} onto consensus to notify peers", data_id
-                    );
-                    let event = consensus::graph::InEvent::ScheduleTx(Transaction::StorageRequest { data_id });
-                    let send_future = self.consensus.input.send(event.clone());
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", format!("{:?}", event)),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
-                    }
-                    Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
-                },
-                data_memory::OutEvent::AssignedRequest(full_shard_id, location) => {
-                    let request = protocol::Request::GetShard(full_shard_id);
-                    channel_log_send!("network.request", format!("{:?}", request));
-                    let send_future = self.request_response
-                        .input
-                        .send(crate::request_response::InEvent::MakeRequest{
-                            request: request.clone(),
-                            to: location,
-                        });
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("network.request", format!("{:?}", request)),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `network.request` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`network.request` queue is full. continuing will drop our request. for now fail fast to see this."),
-                    }
 
-                }
-                data_memory::OutEvent::RecollectResponse(response) => {
-                    let send_future = self.user_interaction.output.send(
-                        module::OutEvent::GetResponse(response)
-                    );
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", "GetResponse"),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
                     }
+                    data_memory::OutEvent::RecollectResponse(response) => {
+                        let send_future = self.user_interaction.output.send(
+                            module::OutEvent::GetResponse(response)
+                        );
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", "GetResponse"),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
+                        }
+                    },
+                    data_memory::OutEvent::Initialized => {
+                        let send_future = self.user_interaction.output.send(
+                            module::OutEvent::StorageInitialized
+                        );
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", "StorageInitialized"),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
+                        }
+                    },
                 },
-                data_memory::OutEvent::Initialized => {
-                    let send_future = self.user_interaction.output.send(
-                        module::OutEvent::StorageInitialized
-                    );
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", "StorageInitialized"),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
-                    }
-                },
-            },
-            Poll::Ready(None) => cant_operate_error_return!("other half of `data_memory.output` was closed. cannot operate without this module."),
-            Poll::Pending => (),
+                Poll::Ready(None) => cant_operate_error_return!("other half of `data_memory.output` was closed. cannot operate without this module."),
+                Poll::Pending => break,
+            }
         }
 
         // TODO: check if futures::select! is applicable to avoid starvation (??)
         trace!("Checking UI events");
-        match self.user_interaction.input.poll_recv(cx) {
-            Poll::Ready(Some(event)) => match event {
-                InEvent::ScheduleProgram(instructions) => {
-                    let send_future = self.consensus.input.send(
-                        consensus::graph::InEvent::ScheduleTx(Transaction::Execute(instructions))
-                    );
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", "ScheduleTx(Execute(_))"),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
-                    }
-                    Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
-                    let send_future = self.user_interaction.output.send(
-                        module::OutEvent::ScheduleOk
-                    );
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", "ScheduleOk"),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
+        loop {
+            match self.user_interaction.input.poll_recv(cx) {
+                Poll::Ready(Some(event)) => match event {
+                    InEvent::ScheduleProgram(instructions) => {
+                        let send_future = self.consensus.input.send(
+                            consensus::graph::InEvent::ScheduleTx(Transaction::Execute(instructions))
+                        );
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", "ScheduleTx(Execute(_))"),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
+                        }
+                        Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
+                        let send_future = self.user_interaction.output.send(
+                            module::OutEvent::ScheduleOk
+                        );
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", "ScheduleOk"),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
+                        }
+                    },
+                    InEvent::Get(data_id) => {
+                        let event = data_memory::InEvent::RecollectRequest(data_id);
+                        let send_future = self.data_memory.input.send(event.clone());
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
+                        }
+                    },
+                    InEvent::Put(data_id, data) => {
+                        debug!(target: Targets::DataDistribution.into_str(), "Starting distribution process of data {:?}", data_id);
+                        let send_future = self.data_memory.input.send(
+                            data_memory::InEvent::PrepareServiceRequest { data_id: data_id.clone(), data }
+                        );
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("PrepareServiceRequest({:?})", data_id)),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
+                        }
+                    },
+                    InEvent::ListStored => {
+                        let send_future = self.data_memory.input.send(
+                            data_memory::InEvent::ListDistributed
+                        );
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", "ListDistributed"),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
+                        }
+                    },
+                    InEvent::InitializeStorage => {
+                        debug!(target: Targets::StorageInitialization.into_str(), "Starting storage initialization, getting list of known peers");
+                        let send_future = self.consensus.input.send(
+                            consensus::graph::InEvent::KnownPeersRequest
+                        );
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", "KnownPeersRequest"),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
+                        }
+                        Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
+                    },
+                    InEvent::GetMetrics => {
+                        let metrics = self.metrics.clone();
+                        let send_future = self.user_interaction.output.send(
+                            OutEvent::GetMetricsResponse(metrics)
+                        );
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", "ListDistributed"),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
+                        }
                     }
                 },
-                InEvent::Get(data_id) => {
-                    let event = data_memory::InEvent::RecollectRequest(data_id);
-                    let send_future = self.data_memory.input.send(event.clone());
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
-                    }
-                },
-                InEvent::Put(data_id, data) => {
-                    debug!(target: Targets::DataDistribution.into_str(), "Starting distribution process of data {:?}", data_id);
-                    let send_future = self.data_memory.input.send(
-                        data_memory::InEvent::PrepareServiceRequest { data_id: data_id.clone(), data }
-                    );
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("PrepareServiceRequest({:?})", data_id)),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
-                    }
-                },
-                InEvent::ListStored => {
-                    let send_future = self.data_memory.input.send(
-                        data_memory::InEvent::ListDistributed
-                    );
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", "ListDistributed"),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
-                    }
-                },
-                InEvent::InitializeStorage => {
-                    debug!(target: Targets::StorageInitialization.into_str(), "Starting storage initialization, getting list of known peers");
-                    let send_future = self.consensus.input.send(
-                        consensus::graph::InEvent::KnownPeersRequest
-                    );
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", "KnownPeersRequest"),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
-                    }
-                    Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
-                },
-                InEvent::GetMetrics => {
-                    let metrics = self.metrics.clone();
-                    let send_future = self.user_interaction.output.send(
-                        OutEvent::GetMetricsResponse(metrics)
-                    );
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", "ListDistributed"),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
-                    }
-                }
-            },
-            Poll::Ready(None) => cant_operate_error_return!("`user_interaction.input` (at client) was closed. not intended to operate without interaction with user."),
-            Poll::Pending => (),
+                Poll::Ready(None) => cant_operate_error_return!("`user_interaction.input` (at client) was closed. not intended to operate without interaction with user."),
+                Poll::Pending => break,
+            }
         }
 
         trace!("Checking processor events");
-        match self.processor.output.poll_recv(cx) {
-            Poll::Ready(Some(single_threaded::OutEvent::FinishedExecution { program_id, results })) => {
-                debug!("Finished executing program {:?}\nResults: {:?}", program_id.clone(), results);
-                let event = consensus::graph::InEvent::ScheduleTx(Transaction::Executed(program_id));
-                let send_future = self.consensus.input.send(event.clone());
-                pin_mut!(send_future);
-                match send_future.poll(cx) {
-                    Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", format!("{:?}", event)),
-                    Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
-                    Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
-                }
-                Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
-            }
-            Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),
-            Poll::Pending => (),
-        }
-
-        if self.processor.accepts_input() {
-            trace!("Checking instruction memory events");
-            match self.instruction_memory.output.poll_recv(cx) {
-                Poll::Ready(Some(event)) => {
-                    match event {
-                        instruction_storage::OutEvent::NextProgram(program) => {
-                            let send_future = self.processor.input.send(single_threaded::InEvent::Execute(program));
-                            pin_mut!(send_future);
-                            match send_future.poll(cx) {
-                                Poll::Ready(Ok(_)) => channel_log_send!("processor.input", "Execute"),
-                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `processor.input` was closed. cannot operate without this module."),
-                                Poll::Pending => cant_operate_error_return!("`processor.input` queue is full. continuing will skip a program for execution, which is unacceptable."),
-                            }
-                        }
-                        instruction_storage::OutEvent::FinishedExecution(program_id) => {
-                            let event = module::OutEvent::ProgramExecuted(program_id);
-                            let send_future = self.user_interaction.output.send(event.clone());
-                            pin_mut!(send_future);
-                            match send_future.poll(cx) {
-                                Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", format!("{:?}", event)),
-                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
-                                Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
-                            }
-                        },
-                    }
-                }
-                Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),
-                Poll::Pending => (),
-            }
-        } else {
-            trace!("Processor is busy, not polling instruction memory");
-        }
-
-        trace!("Checking consensus events");
-        match self.consensus.output.poll_recv(cx) {
-            Poll::Ready(Some(event)) => match event {
-                consensus::graph::OutEvent::GenerateSyncResponse { to, sync } => {
-                    debug!("Sending sync to {}", to);
-                    self.metrics.sync.record_end();
-                    return Poll::Ready(ToSwarm::NotifyHandler {
-                        peer_id: to,
-                        handler: NotifyHandler::Any,
-                        event: protocol::Simple::GossipGraph(sync).into(),
-                    });
-                }
-                consensus::graph::OutEvent::KnownPeersResponse(peers) => {
-                    let mut peers = HashSet::<_>::from_iter(peers.into_iter());
-                    for p in &self.connected_peers {
-                        peers.insert(p.clone());
-                    }
-                    let peers = peers
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, peer)| (peer, Sid(i.try_into().unwrap())))
-                        .collect();
-                    debug!(target: Targets::StorageInitialization.into_str(), "Initializing storage with distribution {:?}", peers);
-                    info!("Initializing storage with distribution {:?}", peers);
-                    let send_future =
-                        self.consensus
-                            .input
-                            .send(consensus::graph::InEvent::ScheduleTx(
-                                Transaction::InitializeStorage {
-                                    distribution: peers,
-                                },
-                            ));
+        loop {
+            match self.processor.output.poll_recv(cx) {
+                Poll::Ready(Some(single_threaded::OutEvent::FinishedExecution { program_id, results })) => {
+                    debug!("Finished executing program {:?}\nResults: {:?}", program_id.clone(), results);
+                    let event = consensus::graph::InEvent::ScheduleTx(Transaction::Executed(program_id));
+                    let send_future = self.consensus.input.send(event.clone());
                     pin_mut!(send_future);
                     match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", "ScheduleTx(InitializeStorage)"),
+                        Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", format!("{:?}", event)),
                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
                     }
-                    Metrics::update_queue_size(
-                        &self.consensus.input,
-                        &mut self.metrics.consensus_queue_size,
-                    );
+                    Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
                 }
-                consensus::graph::OutEvent::RecognizedTransaction {
-                    from,
-                    tx,
-                    event_hash,
-                } => {
-                    info!("Recognized tx: {:?}", tx);
-                }
-                consensus::graph::OutEvent::FinalizedTransaction {
-                    from,
-                    tx,
-                    event_hash,
-                } => {
-                    info!("Finalized tx: {:?}", tx);
-                    match self.handle_tx(cx, from, tx, event_hash) {
-                        handlers::HandleResult::Ok => (),
-                        handlers::HandleResult::Abort => {
-                            return Poll::Ready(libp2p::swarm::ToSwarm::GenerateEvent(Err(
-                                Error::UnableToOperate,
-                            )))
+                Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),
+                Poll::Pending => break,
+            }
+        }
+
+        loop {
+            if self.processor.accepts_input() {
+                trace!("Checking instruction memory events");
+                match self.instruction_memory.output.poll_recv(cx) {
+                    Poll::Ready(Some(event)) => {
+                        match event {
+                            instruction_storage::OutEvent::NextProgram(program) => {
+                                let send_future = self.processor.input.send(single_threaded::InEvent::Execute(program));
+                                pin_mut!(send_future);
+                                match send_future.poll(cx) {
+                                    Poll::Ready(Ok(_)) => channel_log_send!("processor.input", "Execute"),
+                                    Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `processor.input` was closed. cannot operate without this module."),
+                                    Poll::Pending => cant_operate_error_return!("`processor.input` queue is full. continuing will skip a program for execution, which is unacceptable."),
+                                }
+                            }
+                            instruction_storage::OutEvent::FinishedExecution(program_id) => {
+                                let event = module::OutEvent::ProgramExecuted(program_id);
+                                let send_future = self.user_interaction.output.send(event.clone());
+                                pin_mut!(send_future);
+                                match send_future.poll(cx) {
+                                    Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", format!("{:?}", event)),
+                                    Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
+                                    Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
+                                }
+                            },
                         }
                     }
+                    Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),
+                    Poll::Pending => break,
                 }
-            },
-            Poll::Ready(None) => cant_operate_error_return!(
-                "other half of `consensus.output` was closed. cannot operate without this module."
-            ),
-            Poll::Pending => (),
+            } else {
+                trace!("Processor is busy, not polling instruction memory");
+                break;
+            }
+        }
+
+        trace!("Checking consensus events");
+        loop {
+            match self.consensus.output.poll_recv(cx) {
+                Poll::Ready(Some(event)) => match event {
+                    consensus::graph::OutEvent::GenerateSyncResponse { to, sync } => {
+                        debug!("Sending sync to {}", to);
+                        self.metrics.sync.record_end();
+                        return Poll::Ready(ToSwarm::NotifyHandler {
+                            peer_id: to,
+                            handler: NotifyHandler::Any,
+                            event: protocol::Simple::GossipGraph(sync).into(),
+                        });
+                    }
+                    consensus::graph::OutEvent::KnownPeersResponse(peers) => {
+                        let mut peers = HashSet::<_>::from_iter(peers.into_iter());
+                        for p in &self.connected_peers {
+                            peers.insert(p.clone());
+                        }
+                        let peers = peers
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, peer)| (peer, Sid(i.try_into().unwrap())))
+                            .collect();
+                        debug!(target: Targets::StorageInitialization.into_str(), "Initializing storage with distribution {:?}", peers);
+                        info!("Initializing storage with distribution {:?}", peers);
+                        let send_future =
+                            self.consensus
+                                .input
+                                .send(consensus::graph::InEvent::ScheduleTx(
+                                    Transaction::InitializeStorage {
+                                        distribution: peers,
+                                    },
+                                ));
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", "ScheduleTx(InitializeStorage)"),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
+                        }
+                        Metrics::update_queue_size(
+                            &self.consensus.input,
+                            &mut self.metrics.consensus_queue_size,
+                        );
+                    }
+                    consensus::graph::OutEvent::RecognizedTransaction {
+                        from,
+                        tx,
+                        event_hash,
+                    } => {
+                        info!("Recognized tx: {:?}", tx);
+                    }
+                    consensus::graph::OutEvent::FinalizedTransaction {
+                        from,
+                        tx,
+                        event_hash,
+                    } => {
+                        info!("Finalized tx: {:?}", tx);
+                        match self.handle_tx(cx, from, tx, event_hash) {
+                            handlers::HandleResult::Ok => (),
+                            handlers::HandleResult::Abort => {
+                                return Poll::Ready(libp2p::swarm::ToSwarm::GenerateEvent(Err(
+                                    Error::UnableToOperate,
+                                )))
+                            }
+                        }
+                    }
+                },
+                Poll::Ready(None) => cant_operate_error_return!(
+                    "other half of `consensus.output` was closed. cannot operate without this module."
+                ),
+                Poll::Pending => break,
+            }
         }
 
         trace!("Checking periodic gossip");
@@ -831,112 +838,114 @@ impl NetworkBehaviour for Behaviour {
         }
 
         trace!("Checking request&response events");
-        match self.request_response.output.poll_recv(cx) {
-            Poll::Ready(Some(e)) => {
-                match e {
-                    crate::request_response::OutEvent::AssignedRequestId { request_id, request } => {
-                        self.pending_response.insert(request_id, request);
-                    },
-                    crate::request_response::OutEvent::Response { request_id, response } => {
-                        match self.pending_response.get(&request_id) {
-                            Some(request) => match (request, response) {
-                                (
-                                    protocol::Request::GetShard(full_shard_id),
-                                    protocol::Response::GetShard(shard),
-                                ) => {
-                                    channel_log_recv!(
-                                        "network.response",
-                                        format!(
-                                            "GetShard({:?}, is_some: {:?})",
-                                            &full_shard_id,
-                                            shard.is_some()
-                                        )
-                                    );
-                                    let send_future = self.data_memory.input.send(
-                                        data_memory::InEvent::AssignedResponse(full_shard_id.clone(), shard)
-                                    );
+        loop {
+            match self.request_response.output.poll_recv(cx) {
+                Poll::Ready(Some(e)) => {
+                    match e {
+                        crate::request_response::OutEvent::AssignedRequestId { request_id, request } => {
+                            self.pending_response.insert(request_id, request);
+                        },
+                        crate::request_response::OutEvent::Response { request_id, response } => {
+                            match self.pending_response.get(&request_id) {
+                                Some(request) => match (request, response) {
+                                    (
+                                        protocol::Request::GetShard(full_shard_id),
+                                        protocol::Response::GetShard(shard),
+                                    ) => {
+                                        channel_log_recv!(
+                                            "network.response",
+                                            format!(
+                                                "GetShard({:?}, is_some: {:?})",
+                                                &full_shard_id,
+                                                shard.is_some()
+                                            )
+                                        );
+                                        let send_future = self.data_memory.input.send(
+                                            data_memory::InEvent::AssignedResponse(full_shard_id.clone(), shard)
+                                        );
+                                        pin_mut!(send_future);
+                                        match send_future.poll(cx) {
+                                            Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("AssignedResponse({:?},_)", full_shard_id)),
+                                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                            Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
+                                        }
+                                    }
+                                    (
+                                        protocol::Request::ServeShard(full_shard_id),
+                                        protocol::Response::ServeShard(shard),
+                                    ) => {
+                                        debug!(
+                                            target: Targets::DataDistribution.into_str(),
+                                            "Received served shard {:?}", full_shard_id
+                                        );
+                                        channel_log_recv!(
+                                            "network.response",
+                                            format!("ServeShard({:?})", &full_shard_id)
+                                        );
+                                        let send_future = self.data_memory.input.send(
+                                            data_memory::InEvent::ServeShardResponse(
+                                                full_shard_id.clone(),
+                                                shard,
+                                            ),
+                                        );
+                                        pin_mut!(send_future);
+                                        match send_future.poll(cx) {
+                                            Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("ServeShardResponse({:?},_)", full_shard_id)),
+                                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                            Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
+                                        };
+                                    }
+                                    (request, response) => {
+                                        warn!("Response does not match request (id {})", request_id);
+                                        trace!("request: {:?}, response: {:?}", request, response);
+                                    }
+                                },
+                                None => warn!(
+                                    "Received response for unknown (or already fulfilled) request (id {})",
+                                    request_id
+                                ),
+                            }
+                        },
+                        crate::request_response::OutEvent::IncomingRequest {
+                            request_id, request, channel
+                        } => {
+                            match request.clone() {
+                                protocol::Request::GetShard((data_id, shard_id)) => {
+                                    let event =
+                                        data_memory::InEvent::AssignedRequest((data_id, shard_id));
+                                    let send_future = self.data_memory.input.send(event.clone());
                                     pin_mut!(send_future);
                                     match send_future.poll(cx) {
-                                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("AssignedResponse({:?},_)", full_shard_id)),
-                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
-                                    }
+                                            Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
+                                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
+                                            Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will ignore some peer's request, which is unacceptable (?)."),
+                                        }
                                 }
-                                (
-                                    protocol::Request::ServeShard(full_shard_id),
-                                    protocol::Response::ServeShard(shard),
-                                ) => {
+                                protocol::Request::ServeShard((data_id, shard_id)) => {
                                     debug!(
                                         target: Targets::DataDistribution.into_str(),
-                                        "Received served shard {:?}", full_shard_id
+                                        "Received request for serving shard {:?}", (&data_id, &shard_id)
                                     );
-                                    channel_log_recv!(
-                                        "network.response",
-                                        format!("ServeShard({:?})", &full_shard_id)
-                                    );
-                                    let send_future = self.data_memory.input.send(
-                                        data_memory::InEvent::ServeShardResponse(
-                                            full_shard_id.clone(),
-                                            shard,
-                                        ),
-                                    );
+                                    let event =
+                                        data_memory::InEvent::ServeShardRequest((data_id, shard_id));
+                                    let send_future = self.data_memory.input.send(event.clone());
                                     pin_mut!(send_future);
                                     match send_future.poll(cx) {
-                                        Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("ServeShardResponse({:?},_)", full_shard_id)),
-                                        Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                        Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will discard shard served, which is not cool (?). at least it is in development."),
-                                    };
-                                }
-                                (request, response) => {
-                                    warn!("Response does not match request (id {})", request_id);
-                                    trace!("request: {:?}, response: {:?}", request, response);
-                                }
-                            },
-                            None => warn!(
-                                "Received response for unknown (or already fulfilled) request (id {})",
-                                request_id
-                            ),
-                        }
-                    },
-                    crate::request_response::OutEvent::IncomingRequest {
-                        request_id, request, channel
-                    } => {
-                        match request.clone() {
-                            protocol::Request::GetShard((data_id, shard_id)) => {
-                                let event =
-                                    data_memory::InEvent::AssignedRequest((data_id, shard_id));
-                                let send_future = self.data_memory.input.send(event.clone());
-                                pin_mut!(send_future);
-                                match send_future.poll(cx) {
                                         Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
                                         Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
                                         Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will ignore some peer's request, which is unacceptable (?)."),
                                     }
-                            }
-                            protocol::Request::ServeShard((data_id, shard_id)) => {
-                                debug!(
-                                    target: Targets::DataDistribution.into_str(),
-                                    "Received request for serving shard {:?}", (&data_id, &shard_id)
-                                );
-                                let event =
-                                    data_memory::InEvent::ServeShardRequest((data_id, shard_id));
-                                let send_future = self.data_memory.input.send(event.clone());
-                                pin_mut!(send_future);
-                                match send_future.poll(cx) {
-                                    Poll::Ready(Ok(_)) => channel_log_send!("data_memory.input", format!("{:?}", event)),
-                                    Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `data_memory.input` was closed. cannot operate without this module."),
-                                    Poll::Pending => cant_operate_error_return!("`data_memory.input` queue is full. continuing will ignore some peer's request, which is unacceptable (?)."),
                                 }
                             }
-                        }
-                        channel_log_recv!("network.request", format!("{:?}", &request));
-                        let response_handlers = self.processed_requests.entry(request).or_default();
-                        response_handlers.push((request_id, channel));
-                    },
-                }
-            },
-            Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),
-            Poll::Pending => (),
+                            channel_log_recv!("network.request", format!("{:?}", &request));
+                            let response_handlers = self.processed_requests.entry(request).or_default();
+                            response_handlers.push((request_id, channel));
+                        },
+                    }
+                },
+                Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),
+                Poll::Pending => break,
+            }
         }
 
         trace!("Checked everything for now, pending");
