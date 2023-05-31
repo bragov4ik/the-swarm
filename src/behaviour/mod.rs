@@ -321,6 +321,8 @@ impl NetworkBehaviour for Behaviour {
         self.state_updated.notify_one();
     }
 
+    // todo: move most of this monstrosity into a separate async task (main???? not sure)
+    // in order to work with convenient `.await`s
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,
