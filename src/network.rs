@@ -154,7 +154,8 @@ pub async fn new(
     );
     let main_behaviour = behaviour::Behaviour::new(
         local_peer_id,
-        Duration::from_millis(3000),
+        Duration::from_secs(2),
+        Duration::from_secs(12),
         behaviour_server,
         consensus_client,
         instruction_memory_client,

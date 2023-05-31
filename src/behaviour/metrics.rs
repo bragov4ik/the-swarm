@@ -49,7 +49,8 @@ impl PeriodicEvent {
         self.event_timings.push((start_time, duration));
     }
 
-    pub fn get_data(&self) -> &Vec<(Instant, std::time::Duration)> {
+    #[allow(unused)]
+    pub fn get_raw_data(&self) -> &Vec<(Instant, std::time::Duration)> {
         &self.event_timings
     }
 
@@ -57,7 +58,7 @@ impl PeriodicEvent {
         let Some((t_start, _)) = self.event_timings.get(0) else {
             return vec![];
         };
-        let data = self
+        let mut data: Vec<(f32, f32)> = self
             .event_timings
             .iter()
             .flat_map(|(t, y)| {
@@ -70,6 +71,15 @@ impl PeriodicEvent {
                 .into_iter()
             })
             .collect();
+        // Add current time
+        let now = Instant::now().duration_since(*t_start);
+        if let EventStatus::InProgress(triggered) = self.status {
+            let event_triggered = triggered.duration_since(*t_start);
+            data.push((event_triggered.as_secs_f32(), 0f32));
+            data.push((now.as_secs_f32(), 1f32));
+        } else {
+            data.push((now.as_secs_f32(), 0f32));
+        };
         data
     }
 }
@@ -96,7 +106,8 @@ where
         self.values.push((time, value));
     }
 
-    pub fn get_data(&self) -> &Vec<(Instant, V)> {
+    #[allow(unused)]
+    pub fn get_raw_data(&self) -> &Vec<(Instant, V)> {
         &self.values
     }
 

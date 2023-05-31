@@ -1,7 +1,6 @@
 //! TODO: check accepts_input()
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    pin::Pin,
     sync::Arc,
     task::Poll,
     time::Duration,
@@ -20,10 +19,7 @@ use libp2p_request_response::RequestId;
 use rand::Rng;
 
 use thiserror::Error;
-use tokio::{
-    sync::Notify,
-    time::{sleep, Sleep},
-};
+use tokio::sync::Notify;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{
@@ -133,7 +129,6 @@ pub struct Behaviour {
     connected_peers: HashSet<PeerId>,
     rng: rand::rngs::ThreadRng,
     consensus_gossip_timer: DynamicTimer,
-    consensus_gossip_timeout: Duration,
 
     // connection stuff
     oneshot_messages: VecDeque<ConnectionEventWrapper<SimpleMessage>>,
@@ -155,7 +150,8 @@ pub struct Behaviour {
 impl Behaviour {
     pub fn new(
         local_peer_id: PeerId,
-        consensus_gossip_timeout: Duration,
+        consensus_gossip_min_timeout: Duration,
+        consensus_gossip_max_timeout: Duration,
         user_interaction: ModuleChannelServer<module::Module>,
         consensus: ModuleChannelClient<consensus::graph::Module>,
         instruction_memory: ModuleChannelClient<instruction_storage::Module>,
@@ -175,10 +171,9 @@ impl Behaviour {
             connected_peers: HashSet::new(),
             rng: rand::thread_rng(),
             consensus_gossip_timer: DynamicTimer::new(
-                Duration::from_secs(2),
-                Duration::from_secs(12),
+                consensus_gossip_min_timeout,
+                consensus_gossip_max_timeout,
             ),
-            consensus_gossip_timeout,
             oneshot_messages: VecDeque::new(),
             pending_response: HashMap::new(),
             processed_requests: HashMap::new(),
