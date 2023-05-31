@@ -44,8 +44,9 @@ use crate::{
 };
 pub use module::{InEvent, Module, OutEvent};
 
-use self::metrics::Metrics;
+use self::{gossip_timer::DynamicTimer, metrics::Metrics};
 
+mod gossip_timer;
 mod handlers;
 pub mod metrics;
 
@@ -131,7 +132,7 @@ pub struct Behaviour {
     // random gossip
     connected_peers: HashSet<PeerId>,
     rng: rand::rngs::ThreadRng,
-    consensus_gossip_timer: Pin<Box<Sleep>>,
+    consensus_gossip_timer: DynamicTimer,
     consensus_gossip_timeout: Duration,
 
     // connection stuff
@@ -173,7 +174,10 @@ impl Behaviour {
             request_response,
             connected_peers: HashSet::new(),
             rng: rand::thread_rng(),
-            consensus_gossip_timer: Box::pin(sleep(consensus_gossip_timeout)),
+            consensus_gossip_timer: DynamicTimer::new(
+                Duration::from_secs(2),
+                Duration::from_secs(12),
+            ),
             consensus_gossip_timeout,
             oneshot_messages: VecDeque::new(),
             pending_response: HashMap::new(),
@@ -461,6 +465,7 @@ impl NetworkBehaviour for Behaviour {
                             Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on storing shard. for now fail fast to see this."),
                         }
                         Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
+                        self.consensus_gossip_timer.reset_full();
                     }
                     data_memory::OutEvent::AssignedResponse(full_shard_id, shard) => {
                         let request = protocol::Request::GetShard(full_shard_id);
@@ -518,6 +523,7 @@ impl NetworkBehaviour for Behaviour {
                             Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing might not fulfill user's expectations. for now fail fast to see this."),
                         }
                         Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
+                        self.consensus_gossip_timer.reset_full();
                     },
                     data_memory::OutEvent::AssignedRequest(full_shard_id, location) => {
                         let request = protocol::Request::GetShard(full_shard_id);
@@ -589,6 +595,7 @@ impl NetworkBehaviour for Behaviour {
                             Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
                             Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
                         }
+                        self.consensus_gossip_timer.reset_full();
                     },
                     InEvent::Get(data_id) => {
                         let event = data_memory::InEvent::RecollectRequest(data_id);
@@ -668,6 +675,7 @@ impl NetworkBehaviour for Behaviour {
                         Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will not notify other peers on program execution. for now fail fast to see this."),
                     }
                     Metrics::update_queue_size(&self.consensus.input, &mut self.metrics.consensus_queue_size);
+                    self.consensus_gossip_timer.reset_full();
                 }
                 Poll::Ready(None) => cant_operate_error_return!("other half of `instruction_memory.output` was closed. cannot operate without this module."),
                 Poll::Pending => break,
@@ -766,6 +774,7 @@ impl NetworkBehaviour for Behaviour {
                             &self.consensus.input,
                             &mut self.metrics.consensus_queue_size,
                         );
+                        self.consensus_gossip_timer.reset_full();
                     }
                     consensus::graph::OutEvent::RecognizedTransaction {
                         from,
@@ -773,6 +782,7 @@ impl NetworkBehaviour for Behaviour {
                         event_hash,
                     } => {
                         info!("Recognized tx: {:?}", tx);
+                        self.consensus_gossip_timer.reset_full();
                     }
                     consensus::graph::OutEvent::FinalizedTransaction {
                         from,
@@ -788,6 +798,7 @@ impl NetworkBehaviour for Behaviour {
                                 )))
                             }
                         }
+                        self.consensus_gossip_timer.reset_full();
                     }
                 },
                 Poll::Ready(None) => cant_operate_error_return!(
@@ -803,7 +814,7 @@ impl NetworkBehaviour for Behaviour {
                 let random_peer = self.get_random_peer();
 
                 // Time to send another one
-                self.consensus_gossip_timer = Box::pin(sleep(self.consensus_gossip_timeout));
+                self.consensus_gossip_timer.start_next();
                 if let Some(random_peer) = random_peer {
                     trace!("Before gossip make a standalone event");
                     let send_future = self
