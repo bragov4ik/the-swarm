@@ -793,7 +793,8 @@ impl NetworkBehaviour for Behaviour {
                                 )))
                             }
                         }
-                        self.consensus_gossip_timer.reset_full();
+                        // it's already finalized, reset not necessary I suppose
+                        // self.consensus_gossip_timer.reset_full();
                     }
                 },
                 Poll::Ready(None) => cant_operate_error_return!(

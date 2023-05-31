@@ -33,10 +33,10 @@ impl DynamicTimer {
     fn next_duration(&self) -> Duration {
         let now = Instant::now();
         let passed = now - self.last_reset;
-        // sigmoid from ~2 at passed == 0 to ~12 at passed ~= 40
+        // sigmoid from ~2 at $passed \in [0; 10]$ to ~12 at passed ~= 40
         let duration = self.min_duration.as_secs_f64()
             + (self.max_duration - self.min_duration).as_secs_f64()
-                / (1.0 + f64::exp(-passed.as_secs_f64() / 5.0 + 4.0));
+                / (1.0 + f64::exp(-passed.as_secs_f64() / 4.0 + 6.0));
         // `duration` should be within $[self.min_duration, self.max_duration]$ bounds
         // so `unwrap_or` is realistically not called
         Duration::try_from_secs_f64(duration).unwrap_or(self.max_duration)
