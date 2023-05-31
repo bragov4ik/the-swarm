@@ -7,6 +7,9 @@ use tracing::warn;
 pub trait Module {
     type InEvent;
     type OutEvent;
+    /// Works only if `state` is `Some(_)` in `ModuleChannelServer`.
+    /// (i.e. if `ModuleChannelServer::new()` was given
+    /// `Some(_)` as `initial_state`)
     type SharedState: State;
 }
 
@@ -31,6 +34,8 @@ impl<M> ModuleChannelServer<M>
 where
     M: Module,
 {
+    /// If `state` is `None`, it is not checked and `accepts_input()`
+    /// will always be true
     pub fn new(
         initial_state: Option<M::SharedState>,
         buffer: usize,
@@ -52,6 +57,9 @@ where
         };
         (server, client)
     }
+
+    /// Set the state to given value.
+    /// If the server was created with `None` state - does nothing
     pub fn set_state(&mut self, value: M::SharedState) {
         let Some(state) = &mut self.state else {
             return;
@@ -73,6 +81,7 @@ pub struct ModuleChannelClient<M: Module> {
 }
 
 impl<M: Module> ModuleChannelClient<M> {
+    /// If it was created with `None` state - will always be true
     pub fn accepts_input(&self) -> bool {
         let Some(state) = &self.state else {
             return true

@@ -103,8 +103,11 @@ pub async fn new(
         (),
     );
     let consensus = GraphWrapper::from_graph(graph);
-    let (consensus_server, consensus_client) =
-        ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT, shutdown_token.clone());
+    let (consensus_server, consensus_client) = ModuleChannelServer::new(
+        Some(crate::consensus::graph::ModuleState::Ready),
+        CHANNEL_BUFFER_LIMIT,
+        shutdown_token.clone(),
+    );
     join_handles.push(tokio::spawn(consensus.run(consensus_server)));
 
     // data memory
@@ -126,8 +129,11 @@ pub async fn new(
 
     // processor
     let processor = ShardProcessor::new(memory_bus_processor);
-    let (processor_server, processor_client) =
-        ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT, shutdown_token.clone());
+    let (processor_server, processor_client) = ModuleChannelServer::new(
+        Some(crate::processor::single_threaded::ModuleState::Ready),
+        CHANNEL_BUFFER_LIMIT,
+        shutdown_token.clone(),
+    );
     join_handles.push(tokio::spawn(processor.run(processor_server)));
 
     let (behaviour_server, behaviour_client) =
