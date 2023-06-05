@@ -271,6 +271,7 @@ impl NetworkBehaviour for Behaviour {
                     return;
                 }
                 info!("Adding peer {:?} to the list of connected", peer_id);
+                println!("Discovered peer {:?}", peer_id);
                 if !self.connected_peers.insert(peer_id) {
                     warn!("Newly connecting peer was already in connected list, data is inconsistent (?).");
                 }
