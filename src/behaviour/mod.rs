@@ -780,13 +780,6 @@ impl NetworkBehaviour for Behaviour {
                     } => {
                         info!("Recognized tx: {:?}", tx);
                         self.consensus_gossip_timer.reset_full();
-                    }
-                    consensus::graph::OutEvent::FinalizedTransaction {
-                        from,
-                        tx,
-                        event_hash,
-                    } => {
-                        info!("Finalized tx: {:?}", tx);
                         match self.handle_tx(cx, from, tx, event_hash) {
                             handlers::HandleResult::Ok => (),
                             handlers::HandleResult::Abort => {
@@ -795,6 +788,13 @@ impl NetworkBehaviour for Behaviour {
                                 )))
                             }
                         }
+                    }
+                    consensus::graph::OutEvent::FinalizedTransaction {
+                        from,
+                        tx,
+                        event_hash,
+                    } => {
+                        info!("Finalized tx: {:?}", tx);
                         // it's already finalized, reset not necessary I suppose
                         // self.consensus_gossip_timer.reset_full();
                     }
