@@ -1,1 +1,0 @@
-{"instructions":[{"operation":{"Plus":{"first":1,"second":2}},"result":3},{"operation":{"Sub":{"first":1,"second":2}},"result":4},{"operation":{"Inv":{"operand":4}},"result":5}]}

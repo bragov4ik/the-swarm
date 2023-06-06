@@ -72,13 +72,21 @@ where
     };
 
     // large program for testing consistency
-    let instructions = repeat([
+    let _instructions = repeat([
         Instruction::plus(Vid(1), Vid(2), Vid(1)),
         Instruction::plus(Vid(1), Vid(2), Vid(2)),
     ])
     .take(10000)
     .flatten()
     .collect();
+    let _test_program = InputProgram {
+        instructions: _instructions,
+    };
+
+    // large program for testing performance
+    let instructions = repeat(Instruction::plus(Vid(1), Vid(2), Vid(1)))
+        .take(100000)
+        .collect();
     let test_program = InputProgram { instructions };
 
     write_input(path_program, test_program).await?;

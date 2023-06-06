@@ -67,8 +67,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     if args.generate_input {
         crate::io::test_write_input(
-            "input/data_consistency_check.json",
-            "input/program_consistency_check.json",
+            "input/performance/data.json",
+            "input/performance/program.json",
         )
         .await
         .unwrap();
