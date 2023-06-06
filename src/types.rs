@@ -11,9 +11,14 @@ pub struct Vid(pub u64);
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Hash)]
 pub struct Sid(pub u64);
 
+#[cfg(all(feature = "big-array", feature = "medium-array"))]
+compile_error!("'big-array' and 'medium-array' features are mutually exclusive");
+
 #[cfg(feature = "big-array")]
 pub const SHARD_BYTES_NUMBER: u64 = 2u64.pow(10);
-#[cfg(not(feature = "big-array"))]
+#[cfg(feature = "medium-array")]
+pub const SHARD_BYTES_NUMBER: u64 = 64;
+#[cfg(all(not(feature = "big-array"), not(feature = "medium-array")))]
 pub const SHARD_BYTES_NUMBER: u64 = 4;
 // parity shards are configured dynamically
 pub const DATA_SHARDS_COUNT: u64 = 2;
