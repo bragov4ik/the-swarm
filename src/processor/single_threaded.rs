@@ -273,7 +273,7 @@ impl ShardProcessor {
                         InEvent::Execute(program) => {
                             let program_id = program.identifier.clone();
                             connection.set_state(ModuleState::Executing);
-                            debug!(target: Targets::ProgramExecution.into_str(), "Starting program execution of program {:?}", program_id);
+                            debug!(target: Targets::ProgramExecution.into_str(), "Starting execution of program {:?}", program_id);
                             let (instructions, program_id) = program.into_parts();
                             let results = self.execute(instructions).await;
                             debug!(target: Targets::ProgramExecution.into_str(), "Saving results of execution of program {:?}", program_id);
