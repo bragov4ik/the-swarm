@@ -486,7 +486,18 @@ impl NetworkBehaviour for Behaviour {
                             }
                         }
                     },
-                    data_memory::OutEvent::DistributionSuccess(data_id) => {
+                    data_memory::OutEvent::DistributionSufficient(_data_id) => {
+                        // todo: inform somehow
+                        // let event = module::OutEvent::PutConfirmed(data_id);
+                        // let send_future = self.user_interaction.output.send(event.clone());
+                        // pin_mut!(send_future);
+                        // match send_future.poll(cx) {
+                        //     Poll::Ready(Ok(_)) => channel_log_send!("user_interaction.input", format!("{:?}", event)),
+                        //     Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `user_interaction.output` was closed. cannot operate without this module."),
+                        //     Poll::Pending => cant_operate_error_return!("`user_interaction.output` queue is full. continuing will leave user request unanswered. for now fail fast to see this."),
+                        // }
+                    },
+                    data_memory::OutEvent::DistributionFull(data_id) => {
                         let event = module::OutEvent::PutConfirmed(data_id);
                         let send_future = self.user_interaction.output.send(event.clone());
                         pin_mut!(send_future);
@@ -734,7 +745,7 @@ impl NetworkBehaviour for Behaviour {
             match self.consensus.output.poll_recv(cx) {
                 Poll::Ready(Some(event)) => match event {
                     consensus::graph::OutEvent::GenerateSyncResponse { to, sync } => {
-                        debug!("Sending sync to {}", to);
+                        info!("Sending sync to {}", to);
                         self.metrics.sync.record_end();
                         return Poll::Ready(ToSwarm::NotifyHandler {
                             peer_id: to,
@@ -791,11 +802,11 @@ impl NetworkBehaviour for Behaviour {
                         }
                     }
                     consensus::graph::OutEvent::FinalizedTransaction {
-                        from,
+                        from: _,
                         tx,
-                        event_hash,
+                        event_hash: _,
                     } => {
-                        info!("Finalized tx: {:?}", tx);
+                        debug!("Finalized tx: {:?}", tx);
                         // it's already finalized, reset not necessary I suppose
                         // self.consensus_gossip_timer.reset_full();
                     }

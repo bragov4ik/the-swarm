@@ -63,7 +63,9 @@ pub enum OutEvent {
     AssignedStoreSuccess(FullShardId),
     /// 3. Enough storage confirmations were seen, consider the data to be distributed
     /// successfully (though continue to serve remaining)
-    DistributionSuccess(Vid),
+    DistributionSufficient(Vid),
+    /// 3. All storage confirmations were seen, full data reliability is reached.
+    DistributionFull(Vid),
 
     // Assigned & locally stored data
     /// (server) Return requested assigned shard
@@ -571,17 +573,30 @@ impl InitializedDataMemory {
                                 continue;
                             };
                             let sufficient_shards: usize = self.encoding.settings().data_shards_sufficient.try_into().unwrap();
+                            let total_shards: usize = self.encoding.settings().data_shards_total.try_into().unwrap();
                             debug!(
                                 target: Targets::DataDistribution.into_str(),
-                                "Checking if enough shards were distributed (threshold = {}/{}, have {})", sufficient_shards, self.encoding.settings().data_shards_total, this_data_locations.len()
+                                "Checking if enough shards were distributed (threshold = {}/{}, have {})", sufficient_shards, total_shards, this_data_locations.len()
                             );
                             if this_data_locations.len() == sufficient_shards {
                                 debug!(
                                     target: Targets::DataDistribution.into_str(),
-                                    "Enough shards were distributed, reporting to the user as a successfull distribution"
+                                    "Enough shards were distributed, reporting to the user as a sufficient distribution"
                                 );
                                 if let Err(_) = connection.output.send(
-                                    OutEvent::DistributionSuccess(full_shard_id.0)
+                                    OutEvent::DistributionSufficient(full_shard_id.0.clone())
+                                ).await {
+                                    error!("`connection.output` is closed, shuttung down data memory");
+                                    return;
+                                }
+                            }
+                            if this_data_locations.len() == total_shards {
+                                debug!(
+                                    target: Targets::DataDistribution.into_str(),
+                                    "All shards were distributed, reporting to the user as a full distribution"
+                                );
+                                if let Err(_) = connection.output.send(
+                                    OutEvent::DistributionFull(full_shard_id.0)
                                 ).await {
                                     error!("`connection.output` is closed, shuttung down data memory");
                                     return;
