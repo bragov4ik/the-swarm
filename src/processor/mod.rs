@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 pub use self::instruction::{BinaryOp, Instruction, Operation, UnaryOp};
 use crate::types::{Hash, Vid};
 
-// pub(crate) mod mock;
+pub mod mock;
 pub mod instruction;
 pub mod single_threaded;
 

@@ -11,7 +11,7 @@ use crate::{
     behaviour::{self, metrics::Metrics, InEvent},
     io::{read_input, InputData, InputProgram},
     module::ModuleChannelClient,
-    types::{Sid, Vid},
+    types::{Sid, Vid, Data, Hash}, processor::{Program, mock::MockProcessor},
 };
 
 fn print_all_stored(list: Vec<(Vid, HashMap<Sid, PeerId>)>) {
@@ -91,6 +91,17 @@ async fn handle_schedule_exec(filename: &str, input: &Sender<InEvent>) -> anyhow
     input
         .send(InEvent::ScheduleProgram(program.instructions))
         .await?;
+    Ok(())
+}
+
+async fn handle_expected_output(data_filename: &str, program_filename: &str) -> anyhow::Result<()> {
+    let program = read_input::<_, InputProgram>(program_filename).await?;
+    let data = read_input::<_, InputData>(data_filename).await?;
+    let program = Program::new(program.instructions, Hash::from_array([0; 64]))?;
+    let mut data_storage: HashMap<Vid, Data> = data.data.into_iter().collect();
+    println!("Starting mock program execution...");
+    MockProcessor::execute_on(program, &mut data_storage)?;
+    println!("Finished mock execution, storage state after:\n{:?}", data_storage);
     Ok(())
 }
 
@@ -197,6 +208,24 @@ pub fn run_repl(
                 args_info: vec![],
                 handler: Box::new(|_| {
                     if let Err(e) = rt.block_on(handle_metrics_print(&input)) {
+                        warn!("could not proceed with request: {}", e)
+                    }
+                    Ok(CommandStatus::Done)
+                }),
+            },
+        )
+        .add(
+            "mock_calc",
+            easy_repl::Command {
+                description: "Execute the program on given data \
+                    completely locally and return the result".into(),
+                args_info: vec!["datafile".into(), "programfile".into()],
+                handler: Box::new(|args| {
+                    let validator = validator!(String, String);
+                    validator(args)?;
+                    let data_filename = args[0];
+                    let program_filename = args[1];
+                    if let Err(e) = rt.block_on(handle_expected_output(data_filename, program_filename)) {
                         warn!("could not proceed with request: {}", e)
                     }
                     Ok(CommandStatus::Done)
