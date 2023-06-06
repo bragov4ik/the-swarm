@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 
 use thiserror::Error;
+use tracing::debug;
 
-use crate::types::{Data, Vid};
+use crate::{
+    logging_helpers::Targets,
+    types::{Data, Vid},
+};
 
 use super::{BinaryOp, Instruction, Operation, Program, UnaryOp};
 
@@ -91,11 +95,14 @@ impl MockProcessor {
         program: Program,
         data_storage: &mut HashMap<Vid, Data>,
     ) -> Result<(), Error> {
+        let program_id = program.identifier.clone();
+        debug!(target: Targets::ProgramExecution.into_str(), "(mock) Starting execution of program {:?}", program_id);
         for Instruction { operation, result } in program.instructions {
             let operation = Self::retrieve_operands(operation, data_storage)?;
             let result_value = Self::calculate(&operation);
             data_storage.insert(result, result_value);
         }
+        debug!(target: Targets::ProgramExecution.into_str(), "(mock) Saving results of execution of program {:?}", program_id);
         Ok(())
     }
 }

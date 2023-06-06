@@ -54,7 +54,7 @@ impl Program {
         bincode::serialize(list)
     }
 
-    fn calculate_hash(value: &Instructions) -> bincode::Result<Hash> {
+    pub fn calculate_hash(value: &Instructions) -> bincode::Result<Hash> {
         let mut hasher = Blake2b512::new();
         hasher.update(Self::instructions_digest(value)?);
         Ok(Hash::from_array(hasher.finalize().try_into().expect(

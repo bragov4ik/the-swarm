@@ -43,50 +43,93 @@ if {$force_conservative} {
 
 
 set timeout -1
-spawn cargo run --release
+spawn bash -c "RUST_LOG=\"info,program_exec=debug\" cargo run --release --features medium-array"
 match_max 100000
 # wait for 2 peers to connect
 expect -exact "Discovered peer"
 expect -exact "Discovered peer"
+
+set start_storage_init [clock clicks -microseconds]
+
 send -- "init"
 send -- "\r"
 expect -exact "Storage initialized"
 
-# Start the timer
-set start [clock clicks -microseconds]
+set start_data_distribution [clock clicks -microseconds]
 
-send -- "put input/data_consistency_check.json"
+send -- "put input/performance/data.json"
 send -- "\r"
 send -- "\r"
 # wait for both in any order
 expect -re {(id Vid\(2\) was successfully.*id Vid\(1\) was successfully)|(id Vid\(1\) was successfully.*id Vid\(2\) was successfully)}
-send -- "schedule input/program_consistency_check.json"
+
+set start_program_inclusion [clock clicks -microseconds]
+
+send -- "schedule input/performance/program.json"
 send -- "\r"
+# only says that it's in queue for inclusion in some event
 expect -exact "Program scheduled successfully"
+# now it's starting to process
+expect -exact "Recognized tx: Execute("
+set end_program_inclusion [clock clicks -microseconds]
+expect -exact "Starting execution of program"
+set start_program_local_exec [clock clicks -microseconds]
+expect -exact "Saving results of execution of program"
+set end_program_local_exec [clock clicks -microseconds]
 expect -exact "finished execution\r"
 
-# Calculate the elapsed time
-set end [clock clicks -microseconds]
-set elapsed [expr {($end - $start) / 1000000.0}]
+set end_program_full_exec_start_data_recollect [clock clicks -microseconds]
 
 send -- "get 1"
 send -- "\r"
-
 expect {
-    -timeout 3 -exact "Vid(1): Data(\[49, 93, 20, 99, 27, 140, 228, 176\])\r" {}
+    -timeout 3 -exact "Vid(1): Data(\[77, 36, 174, 145, 9, 75, 229, 7, 74, 201, 233, 49, 63, 182, 152, 138, 141, 17, 52, 118, 134, 116, 73, 227, 218, 44, 211, 192, 195, 178, 67, 143, 16, 203, 160, 207, 167, 81, 101, 7, 133, 182, 17, 100, 239, 86, 83, 117, 73, 186, 129, 156, 133, 85, 192, 238, 157, 220, 167, 250, 158, 44, 40, 202, 146, 227, 155, 0, 33, 28, 62, 119, 215, 164, 120, 228, 239, 16, 199, 230, 51, 7, 55, 1, 138, 177, 69, 77, 74, 156, 243, 112, 25, 108, 111, 89, 81, 5, 157, 50, 49, 243, 214, 95, 110, 146, 154, 226, 134, 172, 248, 155, 121, 13, 131, 225, 157, 250, 40, 115, 193, 17, 151, 156, 25, 188, 189, 40\])\r" {}
     timeout { puts "Did not received expected response"; exit 1 }
 }
+set end_data_recollect [clock clicks -microseconds]
+
 send -- "get 2"
 send -- "\r"
 expect {
-    -timeout 3 -exact "Vid(2): Data(\[136, 93, 232, 187, 208, 111, 247, 147\])\r" {}
+    -timeout 3 -exact "Vid(2): Data(\[238, 176, 68, 74, 202, 208, 159, 238, 159, 95, 220, 95, 81, 28, 86, 204, 68, 167, 121, 236, 52, 247, 74, 223, 139, 1, 8, 65, 126, 170, 86, 132, 221, 68, 1, 0, 7, 2, 1, 84, 132, 198, 7, 159, 78, 247, 55, 140, 160, 209, 174, 66, 31, 119, 170, 0, 34, 123, 113, 151, 205, 175, 63, 138, 43, 103, 66, 242, 240, 9, 230, 1, 42, 32, 12, 8, 221, 109, 69, 191, 21, 241, 118, 115, 84, 82, 62, 28, 160, 44, 171, 168, 22, 162, 150, 239, 0, 65, 193, 145, 23, 218, 17, 22, 156, 135, 157, 129, 96, 7, 111, 82, 174, 215, 159, 49, 133, 12, 210, 1, 60, 221, 47, 66, 128, 202, 73, 239\])\r" {}
     timeout { puts "Did not received expected response"; exit 1 }
 }
 send -- "quit"
 send -- "\r"
 
-# Print the elapsed time
-puts "Elapsed time: $elapsed seconds"
-puts "Success!"
 
+# Print the elapsed time
+set time_total [expr {($end_data_recollect - $start_storage_init) / 1000000.0}]
+set time_storage_init [expr {($start_data_distribution - $start_storage_init) / 1000000.0}]
+set time_data_distribution [expr {($start_program_inclusion - $start_data_distribution) / 1000000.0}]
+
+# these 3 are contained in `time_program_total_exec`
+set time_program_inclusion [expr {($end_program_inclusion - $start_program_inclusion) / 1000000.0}]
+set time_program_local_queue_for_exec [expr {($start_program_local_exec - $end_program_inclusion) / 1000000.0}]
+set time_program_local_exec [expr {($end_program_local_exec - $start_program_local_exec) / 1000000.0}]
+
+set time_program_total_exec [expr {($end_program_full_exec_start_data_recollect - $start_program_inclusion) / 1000000.0}]
+set time_data_recollect [expr {($end_data_recollect - $end_program_full_exec_start_data_recollect) / 1000000.0}]
+puts "Elapsed time: $elapsed seconds"
+
+set fo [open benchmark_results.txt a]
+set systemTime [clock seconds]
+puts $fo "[clock format $systemTime -format %Y-%m-%dT%H:%M:%S%Z] test run:"
+puts $fo "Total time of running the scenario: $time_total"
+puts $fo ""
+puts $fo "Time of storage initialization: $time_storage_init"
+puts $fo "Time of data distribution: $time_data_distribution"
+puts $fo ""
+puts $fo "> local execution (within `full system execution`):"
+puts $fo "\tTime of transaction inclusion into block: $time_program_inclusion"
+puts $fo "\tTime of program in local execution queue: $time_program_local_queue_for_exec"
+puts $fo "\tTime of program local execution: $time_program_local_exec"
+puts $fo ""
+puts $fo "Time of program full system execution: $time_program_total_exec"
+puts $fo ""
+puts $fo "Time of data recollection: $time_data_recollect"
+puts $fo "\n"
+close $fo
+
+puts "Success!"
 expect eof

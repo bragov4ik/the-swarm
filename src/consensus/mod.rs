@@ -35,7 +35,7 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 
-use crate::processor::{Instructions, ProgramIdentifier};
+use crate::processor::{Instructions, Program, ProgramIdentifier};
 
 pub mod graph;
 
@@ -55,4 +55,19 @@ pub enum Transaction<TDataId, TShardId, TPeerId> {
     Execute(Instructions),
     /// Program was fully executed by this peer
     Executed(ProgramIdentifier),
+}
+
+impl<D: Debug, S, P> Transaction<D, S, P> {
+    pub fn variant_short_string(&self) -> String {
+        match self {
+            Transaction::InitializeStorage { distribution: _ } => "InitializeStorage".to_owned(),
+            Transaction::StorageRequest { data_id } => format!("StorageRequest({:?})", data_id),
+            Transaction::Stored(id, _) => format!("Stored({:?})", id),
+            Transaction::Execute(ins) => {
+                let hash = Program::calculate_hash(ins).unwrap();
+                format!("Execute({:?})", hash)
+            }
+            Transaction::Executed(id) => format!("Executed({:?})", id),
+        }
+    }
 }

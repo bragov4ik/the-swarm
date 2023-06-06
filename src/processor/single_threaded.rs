@@ -5,13 +5,13 @@ use tokio::{
     join,
     sync::{mpsc, oneshot},
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
-use crate::module::ModuleChannelServer;
 use crate::{
     encoding::{self},
     types::{Shard, Vid},
 };
+use crate::{logging_helpers::Targets, module::ModuleChannelServer};
 
 use super::{
     instruction::Instruction, BinaryOp, Instructions, Operation, Program, ProgramIdentifier,
@@ -271,9 +271,12 @@ impl ShardProcessor {
                     };
                     match in_event {
                         InEvent::Execute(program) => {
+                            let program_id = program.identifier.clone();
                             connection.set_state(ModuleState::Executing);
+                            debug!(target: Targets::ProgramExecution.into_str(), "Starting program execution of program {:?}", program_id);
                             let (instructions, program_id) = program.into_parts();
                             let results = self.execute(instructions).await;
+                            debug!(target: Targets::ProgramExecution.into_str(), "Saving results of execution of program {:?}", program_id);
                             if let Err(_) = connection.output.send(
                                 OutEvent::FinishedExecution { program_id, results }
                             ).await {

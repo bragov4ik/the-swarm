@@ -16,7 +16,7 @@ FROM debian:11
 
 WORKDIR /app
 COPY --from=build /volume/app ./app_rust
-COPY the-swarm/input/data.json the-swarm/input/program.json ./input/
+COPY the-swarm/input/simple/data.json the-swarm/input/simple/program.json ./input/
 
 RUN adduser nonroot && \
     chown -R nonroot ./ && \

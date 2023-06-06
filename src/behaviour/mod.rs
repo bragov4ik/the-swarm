@@ -790,7 +790,7 @@ impl NetworkBehaviour for Behaviour {
                         tx,
                         event_hash,
                     } => {
-                        info!("Recognized tx: {:?}", tx);
+                        info!("Recognized tx: {}", tx.variant_short_string());
                         self.consensus_gossip_timer.reset_full();
                         match self.handle_tx(cx, from, tx, event_hash) {
                             handlers::HandleResult::Ok => (),
