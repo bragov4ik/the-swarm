@@ -1,0 +1,120 @@
+2023-06-06T16:44:02MSK test run:
+TOTAL TIME of running the scenario: 11.960432
+Time of storage initialization: 1.973223
+Time of data distribution: 4.095617
+> local execution (within `full system execution`):
+	Time of transaction inclusion into block: 1.800301
+	Time of program in local execution queue: 0.00107
+	Time of program local execution: 0.024651
+Time of program full system execution: 5.890853
+Time of data recollection: 0.000739
+
+
+2023-06-06T16:44:22MSK test run:
+TOTAL TIME of running the scenario: 11.598189
+Time of storage initialization: 1.998499
+Time of data distribution: 7.880679
+> local execution (within `full system execution`):
+	Time of transaction inclusion into block: 0.246987
+	Time of program in local execution queue: 0.001986
+	Time of program local execution: 0.023863
+Time of program full system execution: 1.718088
+Time of data recollection: 0.000923
+
+
+2023-06-06T16:44:35MSK test run:
+TOTAL TIME of running the scenario: 6.723326
+Time of storage initialization: 1.177762
+Time of data distribution: 2.044387
+> local execution (within `full system execution`):
+	Time of transaction inclusion into block: 0.804949
+	Time of program in local execution queue: 0.002065
+	Time of program local execution: 0.031271
+Time of program full system execution: 3.500243
+Time of data recollection: 0.000934
+
+
+2023-06-06T16:44:59MSK test run:
+TOTAL TIME of running the scenario: 7.847348
+Time of storage initialization: 1.731134
+Time of data distribution: 3.871857
+> local execution (within `full system execution`):
+	Time of transaction inclusion into block: 0.203108
+	Time of program in local execution queue: 0.002008
+	Time of program local execution: 0.025045
+Time of program full system execution: 2.243405
+Time of data recollection: 0.000952
+
+
+2023-06-06T16:45:47MSK test run:
+TOTAL TIME of running the scenario: 12.675465
+Time of storage initialization: 1.998375
+Time of data distribution: 6.596071
+> local execution (within `full system execution`):
+	Time of transaction inclusion into block: 1.325524
+	Time of program in local execution queue: 0.002023
+	Time of program local execution: 0.027427
+Time of program full system execution: 4.080052
+Time of data recollection: 0.000967
+
+
+2023-06-06T16:46:10MSK test run:
+TOTAL TIME of running the scenario: 12.568052
+Time of storage initialization: 1.997982
+Time of data distribution: 6.510265
+> local execution (within `full system execution`):
+	Time of transaction inclusion into block: 1.655283
+	Time of program in local execution queue: 0.001444
+	Time of program local execution: 0.02787
+Time of program full system execution: 4.059059
+Time of data recollection: 0.000746
+
+
+2023-06-06T16:46:27MSK test run:
+TOTAL TIME of running the scenario: 8.101017
+Time of storage initialization: 1.145679
+Time of data distribution: 4.113024
+> local execution (within `full system execution`):
+	Time of transaction inclusion into block: 0.665827
+	Time of program in local execution queue: 0.001997
+	Time of program local execution: 0.027654
+Time of program full system execution: 2.841527
+Time of data recollection: 0.000787
+
+
+2023-06-06T16:46:40MSK test run:
+TOTAL TIME of running the scenario: 9.8206
+Time of storage initialization: 1.997954
+Time of data distribution: 5.477551
+> local execution (within `full system execution`):
+	Time of transaction inclusion into block: 0.627569
+	Time of program in local execution queue: 0.002075
+	Time of program local execution: 0.025235
+Time of program full system execution: 2.344012
+Time of data recollection: 0.001083
+
+
+2023-06-06T16:46:56MSK test run:
+TOTAL TIME of running the scenario: 9.762593
+Time of storage initialization: 0.270241
+Time of data distribution: 5.799736
+> local execution (within `full system execution`):
+	Time of transaction inclusion into block: 0.28521
+	Time of program in local execution queue: 0.001918
+	Time of program local execution: 0.025382
+Time of program full system execution: 3.691786
+Time of data recollection: 0.00083
+
+
+2023-06-06T16:47:11MSK test run:
+TOTAL TIME of running the scenario: 10.181157
+Time of storage initialization: 1.236821
+Time of data distribution: 6.90394
+> local execution (within `full system execution`):
+	Time of transaction inclusion into block: 1.251881
+	Time of program in local execution queue: 0.002053
+	Time of program local execution: 0.026254
+Time of program full system execution: 2.039349
+Time of data recollection: 0.001047
+
+
