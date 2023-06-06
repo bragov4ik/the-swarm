@@ -94,11 +94,8 @@ expect {
     -timeout 3 -exact "Vid(2): Data(\[120, 23, 78, 161, 1, 78, 124, 131, 237, 109, 199, 207, 4, 226, 43, 162, 4, 127, 128, 25, 2, 47, 231, 48, 15, 213, 198, 242, 248, 241, 69, 230, 80, 231, 140, 10, 108, 155, 100, 163, 141, 58, 159, 193, 120, 121, 11, 45, 22, 3, 4, 20, 149, 31, 68, 131, 140, 43, 31, 55, 222, 207, 0, 31, 185, 231, 5, 25, 248, 203, 85, 132, 221, 234, 2, 255, 173, 59, 198, 130, 140, 197, 20, 222, 246, 34, 136, 118, 189, 213, 141, 214, 110, 244, 115, 46, 229, 89, 74, 6, 10, 185, 56, 236, 224, 252, 89, 90, 185, 60, 36, 239, 1, 133, 166, 242, 146, 120, 236, 79, 22, 51, 94, 227, 34, 210, 155, 228\])\r" {}
     timeout { puts "Did not received expected response"; exit 1 }
 }
-send -- "quit"
-send -- "\r"
 
-
-# Print the elapsed time
+# calculate time
 set time_total [expr {($end_data_recollect - $start_storage_init) / 1000000.0}]
 set time_storage_init [expr {($start_data_distribution - $start_storage_init) / 1000000.0}]
 set time_data_distribution [expr {($start_program_inclusion - $start_data_distribution) / 1000000.0}]
@@ -111,7 +108,7 @@ set time_program_local_exec [expr {($end_program_local_exec - $start_program_loc
 set time_program_total_exec [expr {($end_program_full_exec_start_data_recollect - $start_program_inclusion) / 1000000.0}]
 set time_data_recollect [expr {($end_data_recollect - $end_program_full_exec_start_data_recollect) / 1000000.0}]
 
-set fo [open benchmark_results.txt a]
+set fo [open benchmark_results/distributed.txt a]
 set systemTime [clock seconds]
 puts $fo "[clock format $systemTime -format %Y-%m-%dT%H:%M:%S%Z] test run:"
 puts $fo "TOTAL TIME of running the scenario: $time_total"
@@ -126,9 +123,12 @@ puts $fo "Time of data recollection: $time_data_recollect"
 puts $fo "\n"
 close $fo
 
-set fo [open benchmark_results.csv a]
+set fo [open benchmark_results/distributed.csv a]
 puts $fo "[clock format $systemTime -format %Y-%m-%dT%H:%M:%S%Z],$time_total,$time_storage_init,$time_data_distribution,$time_program_inclusion,$time_program_local_queue_for_exec,$time_program_local_exec,$time_program_total_exec,$time_data_recollect"
 close $fo
 
 puts "Success!"
+
+send -- "quit"
+send -- "\r"
 expect eof
