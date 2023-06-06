@@ -110,29 +110,24 @@ set time_program_local_exec [expr {($end_program_local_exec - $start_program_loc
 
 set time_program_total_exec [expr {($end_program_full_exec_start_data_recollect - $start_program_inclusion) / 1000000.0}]
 set time_data_recollect [expr {($end_data_recollect - $end_program_full_exec_start_data_recollect) / 1000000.0}]
-puts "Elapsed time: $elapsed seconds"
 
 set fo [open benchmark_results.txt a]
 set systemTime [clock seconds]
 puts $fo "[clock format $systemTime -format %Y-%m-%dT%H:%M:%S%Z] test run:"
-puts $fo "Total time of running the scenario: $time_total"
-puts $fo ""
+puts $fo "TOTAL TIME of running the scenario: $time_total"
 puts $fo "Time of storage initialization: $time_storage_init"
 puts $fo "Time of data distribution: $time_data_distribution"
-puts $fo ""
 puts $fo "> local execution (within `full system execution`):"
 puts $fo "\tTime of transaction inclusion into block: $time_program_inclusion"
 puts $fo "\tTime of program in local execution queue: $time_program_local_queue_for_exec"
 puts $fo "\tTime of program local execution: $time_program_local_exec"
-puts $fo ""
 puts $fo "Time of program full system execution: $time_program_total_exec"
-puts $fo ""
 puts $fo "Time of data recollection: $time_data_recollect"
 puts $fo "\n"
 close $fo
 
 set fo [open benchmark_results.csv a]
-puts $fo "[clock format $systemTime -format %Y-%m-%dT%H:%M:%S%Z], $time_total, $time_storage_init, $time_data_distribution, $time_program_inclusion, $time_program_local_queue_for_exec, $time_program_local_exec, $time_program_total_exec, $time_data_recollect"
+puts $fo "[clock format $systemTime -format %Y-%m-%dT%H:%M:%S%Z],$time_total,$time_storage_init,$time_data_distribution,$time_program_inclusion,$time_program_local_queue_for_exec,$time_program_local_exec,$time_program_total_exec,$time_data_recollect"
 close $fo
 
 puts "Success!"
