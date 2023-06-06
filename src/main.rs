@@ -64,6 +64,8 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // println!("{}", crate::types::SHARD_BYTES_NUMBER * crate::types::DATA_SHARDS_COUNT);
+
     let args = Args::parse();
     if args.generate_input {
         crate::io::test_write_input(

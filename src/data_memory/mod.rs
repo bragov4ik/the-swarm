@@ -595,6 +595,7 @@ impl InitializedDataMemory {
                                     target: Targets::DataDistribution.into_str(),
                                     "All shards were distributed, reporting to the user as a full distribution"
                                 );
+                                self.to_distribute.remove(&full_shard_id.0);
                                 if let Err(_) = connection.output.send(
                                     OutEvent::DistributionFull(full_shard_id.0)
                                 ).await {
