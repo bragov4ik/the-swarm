@@ -12,7 +12,7 @@ pub struct Vid(pub u64);
 pub struct Sid(pub u64);
 
 // kilobyte
-pub const SHARD_BYTES_NUMBER: u64 = 2u64.pow(20);
+pub const SHARD_BYTES_NUMBER: u64 = 2u64.pow(10);
 // parity shards are configured dynamically
 pub const DATA_SHARDS_COUNT: u64 = 2;
 
