@@ -1,5 +1,6 @@
 //! Reading & parsing initial demo input.
 
+use rand::{thread_rng, Rng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::path::Path;
 
@@ -46,11 +47,18 @@ pub async fn test_write_input<P>(path_data: P, path_program: P) -> anyhow::Resul
 where
     P: AsRef<Path>,
 {
+    let mut first =
+        [0u8; (crate::types::SHARD_BYTES_NUMBER * crate::types::DATA_SHARDS_COUNT) as usize];
+    for i in 0..first.len() {
+        first[i] = thread_rng().gen_range(u8::MIN..=u8::MAX);
+    }
+    let mut second =
+        [0u8; (crate::types::SHARD_BYTES_NUMBER * crate::types::DATA_SHARDS_COUNT) as usize];
+    for i in 0..second.len() {
+        second[i] = thread_rng().gen_range(u8::MIN..=u8::MAX);
+    }
     let test_data = InputData {
-        data: vec![
-            (Vid(1), Data([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])),
-            (Vid(2), Data([37, 144, 123, 1, 0, 0, 0, 14, 53, 23, 1, 1])),
-        ],
+        data: vec![(Vid(1), Data(first)), (Vid(2), Data(second))],
     };
     write_input(path_data, test_data).await?;
 

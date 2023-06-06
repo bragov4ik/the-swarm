@@ -64,9 +64,10 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    println!("starting");
     #[cfg(feature = "gen-input")]
     {
-        crate::io::test_write_input("input/data.json", "input/program.json")
+        crate::io::test_write_input("input/data_large.json", "input/program_large.json")
             .await
             .unwrap();
         return Ok(());
