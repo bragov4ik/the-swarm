@@ -71,31 +71,31 @@ set elapsed [expr {($end - $start) / 1000000.0}]
 send -- "get 1"
 send -- "\r"
 expect {
-	-timeout 3 -exact "Vid(1): Data(\[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12\])\r" {}
+	-timeout 3 -exact "Vid(1): Data(\[1, 2, 3, 4, 5, 6, 7, 8\])\r" {}
 	timeout { puts "Did not received expected response"; exit 1 }
 }
 send -- "get 2"
 send -- "\r"
 expect {
-	-timeout 3 -exact "Vid(2): Data(\[37, 144, 123, 1, 0, 0, 0, 14, 53, 23, 1, 1\])\r" {}
+	-timeout 3 -exact "Vid(2): Data(\[37, 144, 123, 1, 0, 23, 53, 14\])\r" {}
 	timeout { puts "Did not received expected response"; exit 1 }
 }
 send -- "get 3"
 send -- "\r"
 expect {
-	-timeout 3 -exact "Vid(3): Data(\[36, 146, 120, 5, 5, 6, 7, 6, 60, 29, 10, 13\])\r" {}
+	-timeout 3 -exact "Vid(3): Data(\[36, 146, 120, 5, 5, 17, 50, 6\])\r" {}
 	timeout { puts "Did not received expected response"; exit 1 }
 }
 send -- "get 4"
 send -- "\r"
 expect {
-	-timeout 3 -exact "Vid(4): Data(\[36, 146, 120, 5, 5, 6, 7, 6, 60, 29, 10, 13\])\r" {}
+	-timeout 3 -exact "Vid(4): Data(\[36, 146, 120, 5, 5, 17, 50, 6\])\r" {}
 	timeout { puts "Did not received expected response"; exit 1 }
 }
 send -- "get 5"
 send -- "\r"
 expect {
-	-timeout 3 -exact "Vid(5): Data(\[36, 146, 120, 5, 5, 6, 7, 6, 60, 29, 10, 13\])\r" {}
+	-timeout 3 -exact "Vid(5): Data(\[36, 146, 120, 5, 5, 17, 50, 6\])\r" {}
 	timeout { puts "Did not received expected response"; exit 1 }
 }
 send -- "quit"

@@ -4,10 +4,10 @@
       "operation": {
         "Plus": {
           "first": 1,
-          "second": 1
+          "second": 2
         }
       },
-      "result": 1
+      "result": 3
     },
     {
       "operation": {
