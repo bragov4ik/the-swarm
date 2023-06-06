@@ -11,8 +11,10 @@ pub struct Vid(pub u64);
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Hash)]
 pub struct Sid(pub u64);
 
-// kilobyte
+#[cfg(feature = "big-array")]
 pub const SHARD_BYTES_NUMBER: u64 = 2u64.pow(10);
+#[cfg(not(feature = "big-array"))]
+pub const SHARD_BYTES_NUMBER: u64 = 4;
 // parity shards are configured dynamically
 pub const DATA_SHARDS_COUNT: u64 = 2;
 

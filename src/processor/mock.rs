@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use crate::types::{Vid, Data};
+use crate::types::{Data, Vid};
 
-use super::{Program, Operation, Instruction, BinaryOp, UnaryOp};
+use super::{BinaryOp, Instruction, Operation, Program, UnaryOp};
 
 pub struct MockProcessor {}
 
@@ -48,13 +48,13 @@ impl MockProcessor {
         Data(array)
     }
 
-    fn retrieve_operand(
-        operand: Vid,
-        data_storage: &HashMap<Vid, Data>,
-    ) -> Result<Data, Error> {
-        data_storage.get(&operand).cloned().ok_or(Error::DataNotFound)
+    fn retrieve_operand(operand: Vid, data_storage: &HashMap<Vid, Data>) -> Result<Data, Error> {
+        data_storage
+            .get(&operand)
+            .cloned()
+            .ok_or(Error::DataNotFound)
     }
-    
+
     fn retrieve_binary(
         binary: BinaryOp<Vid>,
         data_storage: &HashMap<Vid, Data>,
@@ -72,26 +72,25 @@ impl MockProcessor {
         let operand = Self::retrieve_operand(unary.operand, data_storage)?;
         Ok(UnaryOp { operand })
     }
-    
+
     fn retrieve_operands(
         op: Operation<Vid>,
         data_storage: &mut HashMap<Vid, Data>,
     ) -> Result<Operation<Data>, Error> {
         let retrieved = match op {
-            Operation::Sub(binary) => Operation::Sub(
-                Self::retrieve_binary(binary, data_storage)?,
-            ),
-            Operation::Plus(binary) => Operation::Plus(
-                Self::retrieve_binary(binary, data_storage)?,
-            ),
-            Operation::Inv(unary) => Operation::Inv(
-                Self::retrieve_unary(unary, data_storage)?,
-            ),
+            Operation::Sub(binary) => Operation::Sub(Self::retrieve_binary(binary, data_storage)?),
+            Operation::Plus(binary) => {
+                Operation::Plus(Self::retrieve_binary(binary, data_storage)?)
+            }
+            Operation::Inv(unary) => Operation::Inv(Self::retrieve_unary(unary, data_storage)?),
         };
         Ok(retrieved)
     }
 
-    pub fn execute_on(program: Program, data_storage: &mut HashMap<Vid, Data>) -> Result<(), Error> {
+    pub fn execute_on(
+        program: Program,
+        data_storage: &mut HashMap<Vid, Data>,
+    ) -> Result<(), Error> {
         for Instruction { operation, result } in program.instructions {
             let operation = Self::retrieve_operands(operation, data_storage)?;
             let result_value = Self::calculate(&operation);

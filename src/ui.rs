@@ -11,7 +11,8 @@ use crate::{
     behaviour::{self, metrics::Metrics, InEvent},
     io::{read_input, InputData, InputProgram},
     module::ModuleChannelClient,
-    types::{Sid, Vid, Data, Hash}, processor::{Program, mock::MockProcessor},
+    processor::{mock::MockProcessor, Program},
+    types::{Data, Hash, Sid, Vid},
 };
 
 fn print_all_stored(list: Vec<(Vid, HashMap<Sid, PeerId>)>) {
@@ -101,7 +102,10 @@ async fn handle_expected_output(data_filename: &str, program_filename: &str) -> 
     let mut data_storage: HashMap<Vid, Data> = data.data.into_iter().collect();
     println!("Starting mock program execution...");
     MockProcessor::execute_on(program, &mut data_storage)?;
-    println!("Finished mock execution, storage state after:\n{:?}", data_storage);
+    println!(
+        "Finished mock execution, storage state after:\n{:?}",
+        data_storage
+    );
     Ok(())
 }
 
@@ -218,14 +222,17 @@ pub fn run_repl(
             "mock_calc",
             easy_repl::Command {
                 description: "Execute the program on given data \
-                    completely locally and return the result".into(),
+                    completely locally and return the result"
+                    .into(),
                 args_info: vec!["datafile".into(), "programfile".into()],
                 handler: Box::new(|args| {
                     let validator = validator!(String, String);
                     validator(args)?;
                     let data_filename = args[0];
                     let program_filename = args[1];
-                    if let Err(e) = rt.block_on(handle_expected_output(data_filename, program_filename)) {
+                    if let Err(e) =
+                        rt.block_on(handle_expected_output(data_filename, program_filename))
+                    {
                         warn!("could not proceed with request: {}", e)
                     }
                     Ok(CommandStatus::Done)
