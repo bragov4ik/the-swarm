@@ -1,4 +1,4 @@
-#!/opt/homebrew/bin/expect -f
+#!/usr/bin/expect -f
 
 set fo [open benchmark_results.txt a]
 set systemTime [clock seconds]
