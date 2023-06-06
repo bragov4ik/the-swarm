@@ -47,20 +47,21 @@ impl DataEncoding<Data, Sid, Shard, Settings, Error> for ReedSolomonWrapper {
         let shard_byte_number = SHARD_BYTES_NUMBER
             .try_into()
             .expect("unsupported encoding settings by the system");
-        let mut shards: Vec<Shard> = data
-            .chunks(shard_byte_number)
-            .map(|slice| {
-                slice
-                    .try_into()
-                    .expect("number of bytes in `Data` must be divisible by SHARD_BYTES_NUMBER")
-            })
-            .collect();
+        let mut shards: Vec<Shard> =
+            data.0
+                .chunks(shard_byte_number)
+                .map(|slice| {
+                    Shard(slice.try_into().expect(
+                        "number of bytes in `Data` must be divisible by SHARD_BYTES_NUMBER",
+                    ))
+                })
+                .collect();
         assert_eq!(
             u64::try_from(shards.len()).unwrap(),
             DATA_SHARDS_COUNT,
             "Data must hace SHARD_BYTES_NUMBER*DATA_SHARDS_COUNT bytes"
         );
-        let parity_shard: Shard = [0; SHARD_BYTES_NUMBER as usize];
+        let parity_shard = Shard([0; SHARD_BYTES_NUMBER as usize]);
         let parity_shards = repeat(parity_shard).take(self.inner.parity_shard_count());
         shards.extend(parity_shards);
         self.inner.encode(&mut shards)?;
@@ -78,7 +79,7 @@ impl DataEncoding<Data, Sid, Shard, Settings, Error> for ReedSolomonWrapper {
         for (index, shard) in shards {
             let vec_index: usize = index.0.try_into().unwrap();
             let shard_position = shards_vec.get_mut(vec_index).ok_or(Error::WrongShardId)?;
-            *shard_position = Some(shard.into());
+            *shard_position = Some(shard.0.into());
         }
         self.inner.reconstruct(&mut shards_vec)?;
         let data: Vec<_> = shards_vec
@@ -87,7 +88,7 @@ impl DataEncoding<Data, Sid, Shard, Settings, Error> for ReedSolomonWrapper {
             .take(DATA_SHARDS_COUNT.try_into().unwrap())
             .flatten()
             .collect();
-        Ok(data.try_into().unwrap())
+        Ok(Data(data.try_into().unwrap()))
     }
 
     fn settings(&self) -> Settings {

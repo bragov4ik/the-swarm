@@ -119,23 +119,24 @@ where
 
 impl ShardProcessor {
     fn calculate(operation: &Operation<Shard>) -> Shard {
-        match operation {
+        let array = match operation {
             Operation::Sub(operation) => map_zip(
-                &operation.first,
-                &operation.second,
+                &operation.first.as_inner(),
+                &operation.second.as_inner(),
                 reed_solomon_erasure::galois_8::add,
             ),
             Operation::Plus(operation) => map_zip(
-                &operation.first,
-                &operation.second,
+                &operation.first.as_inner(),
+                &operation.second.as_inner(),
                 reed_solomon_erasure::galois_8::add,
             ),
             // inverses in GF(2^8) are the same values, because
             // the arithmetic is done on polynomials over GF(2)
             // and addition of any coefficient on itself gives 0
             // in GF(2)
-            Operation::Inv(operation) => operation.operand.map(|n| n),
-        }
+            Operation::Inv(operation) => operation.operand.as_inner().map(|n| n),
+        };
+        Shard(array)
     }
 
     async fn retrieve_operand(

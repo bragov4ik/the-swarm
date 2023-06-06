@@ -10,7 +10,6 @@
 
 // use futures::io;
 use serde::{Deserialize, Serialize};
-// use std::fmt::Display;
 
 use crate::types::{GraphSync, Shard, Sid, Vid};
 

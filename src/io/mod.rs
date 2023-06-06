@@ -48,8 +48,8 @@ where
 {
     let test_data = InputData {
         data: vec![
-            (Vid(1), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
-            (Vid(2), [37, 144, 123, 1, 0, 0, 0, 14, 53, 23, 1, 1]),
+            (Vid(1), Data([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])),
+            (Vid(2), Data([37, 144, 123, 1, 0, 0, 0, 14, 53, 23, 1, 1])),
         ],
     };
     write_input(path_data, test_data).await?;

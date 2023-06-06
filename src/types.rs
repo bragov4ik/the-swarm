@@ -11,18 +11,58 @@ pub struct Vid(pub u64);
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Hash)]
 pub struct Sid(pub u64);
 
-pub const SHARD_BYTES_NUMBER: u64 = 6;
+// megabyte
+pub const SHARD_BYTES_NUMBER: u64 = 2u64.pow(20);
 // parity shards are configured dynamically
 pub const DATA_SHARDS_COUNT: u64 = 2;
 
 /// Type/struct that represents unit of data stored on nodes.
 /// Should be actual data shard (erasure coded) in the future, but
 /// right now for demonstration purposes, represents vector(array) of size 4.
-// #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub type Shard = [u8; SHARD_BYTES_NUMBER as usize];
+#[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
+pub struct Shard(#[serde(with = "BigArray")] pub [u8; SHARD_BYTES_NUMBER as usize]);
+
+impl Shard {
+    pub fn as_inner(&self) -> &[u8; SHARD_BYTES_NUMBER as usize] {
+        &self.0
+    }
+}
+
+impl AsRef<[u8]> for Shard {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl AsMut<[u8]> for Shard {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
 
 /// for now just splits into three parts
-pub type Data = [u8; (SHARD_BYTES_NUMBER * DATA_SHARDS_COUNT) as usize];
+#[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
+pub struct Data(
+    #[serde(with = "BigArray")] pub [u8; (SHARD_BYTES_NUMBER * DATA_SHARDS_COUNT) as usize],
+);
+
+impl Data {
+    pub fn as_inner(&self) -> &[u8; (SHARD_BYTES_NUMBER * DATA_SHARDS_COUNT) as usize] {
+        &self.0
+    }
+}
+
+impl AsRef<[u8]> for Data {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl AsMut<[u8]> for Data {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
 
 /// Graph representation that is passed on random gossip.
 pub type GraphSync = SyncJobs<Vid, Sid>;

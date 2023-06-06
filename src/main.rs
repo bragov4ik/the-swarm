@@ -34,7 +34,7 @@ mod types;
 mod ui;
 
 const CHANNEL_BUFFER_LIMIT: usize = 100;
-//todo move to spec file
+// todo move to some spec file
 const ENCODING_SETTINGS: encoding::reed_solomon::Settings = encoding::reed_solomon::Settings {
     data_shards_total: 3,
     data_shards_sufficient: 2,
@@ -66,7 +66,7 @@ struct Args {
 async fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(feature = "gen-input")]
     {
-        crate::io::test_write_input("data.json", "program.json")
+        crate::io::test_write_input("input/data.json", "input/program.json")
             .await
             .unwrap();
         return Ok(());

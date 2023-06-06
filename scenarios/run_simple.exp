@@ -55,11 +55,11 @@ expect -exact "Storage initialized"
 # Start the timer
 set start [clock clicks -microseconds]
 
-send -- "put data.json"
+send -- "put input/data.json"
 send -- "\r"
 # wait for both in any order
 expect -re {(id Vid\(2\) was successfully.*id Vid\(1\) was successfully)|(id Vid\(1\) was successfully.*id Vid\(2\) was successfully)}
-send -- "schedule program.json"
+send -- "schedule input/program.json"
 send -- "\r"
 expect -exact "Program scheduled successfully"
 expect -exact "finished execution\r"

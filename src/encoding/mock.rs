@@ -19,14 +19,17 @@ pub enum Error {
 impl DataEncoding<Data, Sid, Shard, MockEncodingSettings, Error> for MockEncoding {
     fn encode(&self, data: Data) -> Result<HashMap<Sid, Shard>, Error> {
         let shards: HashMap<Sid, Shard> = data
+            .0
             .chunks_exact(4)
             .enumerate()
             .map(|(i, slice)| {
                 (
                     Sid(i.try_into().unwrap()),
-                    slice
-                        .try_into()
-                        .expect("chunk_exact(4) must return slices of len 4"),
+                    Shard(
+                        slice
+                            .try_into()
+                            .expect("chunk_exact(4) must return slices of len 4"),
+                    ),
                 )
             })
             .collect();
@@ -39,10 +42,11 @@ impl DataEncoding<Data, Sid, Shard, MockEncodingSettings, Error> for MockEncodin
         shards.sort_by_key(|(i, _)| i.0);
         let kek: Vec<_> = shards
             .into_iter()
-            .map(|(_, shard)| shard.into_iter())
+            .map(|(_, shard)| shard.0.into_iter())
             .flatten()
             .collect();
-        kek.try_into().map_err(|_| Error::NotEnoughShards)
+        let arr = kek.try_into().map_err(|_| Error::NotEnoughShards)?;
+        Ok(Data(arr))
     }
 
     fn settings(&self) -> MockEncodingSettings {
