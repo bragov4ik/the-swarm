@@ -66,9 +66,12 @@ struct Args {
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     if args.generate_input {
-        crate::io::test_write_input("input/data_large.json", "input/program_large.json")
-            .await
-            .unwrap();
+        crate::io::test_write_input(
+            "input/data_consistency_check.json",
+            "input/program_consistency_check.json",
+        )
+        .await
+        .unwrap();
         return Ok(());
     }
 

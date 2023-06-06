@@ -2,7 +2,7 @@
 
 use rand::{thread_rng, Rng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::path::Path;
+use std::{iter::repeat, path::Path};
 
 use crate::{
     processor::{Instruction, Instructions},
@@ -62,13 +62,25 @@ where
     };
     write_input(path_data, test_data).await?;
 
-    let test_program = InputProgram {
+    // very simple program
+    let _test_program = InputProgram {
         instructions: vec![
             Instruction::plus(Vid(1), Vid(2), Vid(3)),
-            Instruction::dot(Vid(1), Vid(2), Vid(4)),
+            Instruction::sub(Vid(1), Vid(2), Vid(4)),
             Instruction::inv(Vid(4), Vid(5)),
         ],
     };
+
+    // large program for testing consistency
+    let instructions = repeat([
+        Instruction::plus(Vid(1), Vid(2), Vid(1)),
+        Instruction::plus(Vid(1), Vid(2), Vid(2)),
+    ])
+    .take(10000)
+    .flatten()
+    .collect();
+    let test_program = InputProgram { instructions };
+
     write_input(path_program, test_program).await?;
     Ok(())
 }

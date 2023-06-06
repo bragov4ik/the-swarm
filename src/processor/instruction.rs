@@ -103,7 +103,7 @@ pub enum Operation<TOperand> {
     Inv(UnaryOp<TOperand>),
 }
 
-impl_binary_constructor!(dot, Sub);
+impl_binary_constructor!(sub, Sub);
 impl_binary_constructor!(plus, Plus);
 impl_unary!(inv, Inv);
 
