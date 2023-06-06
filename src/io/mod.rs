@@ -35,7 +35,7 @@ where
     P: AsRef<Path>,
     T: Serialize,
 {
-    let raw = serde_json::to_string_pretty(&data)?;
+    let raw = serde_json::to_string(&data)?;
     tokio::fs::write(path, raw).await?;
     Ok(())
 }

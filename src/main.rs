@@ -64,16 +64,13 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    println!("starting");
-    #[cfg(feature = "gen-input")]
-    {
+    let args = Args::parse();
+    if args.generate_input {
         crate::io::test_write_input("input/data_large.json", "input/program_large.json")
             .await
             .unwrap();
         return Ok(());
     }
-
-    let args = Args::parse();
 
     let (mut swarm, mut request_response_server, join_handles, shutdown_token) =
         network::new(None).await.unwrap();
