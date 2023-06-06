@@ -745,7 +745,10 @@ impl NetworkBehaviour for Behaviour {
             match self.consensus.output.poll_recv(cx) {
                 Poll::Ready(Some(event)) => match event {
                     consensus::graph::OutEvent::GenerateSyncResponse { to, sync } => {
-                        info!("Sending sync to {}", to);
+                        debug!(
+                            target: Targets::Synchronization.into_str(),
+                            "Sending sync to {}", to
+                        );
                         self.metrics.sync.record_end();
                         return Poll::Ready(ToSwarm::NotifyHandler {
                             peer_id: to,

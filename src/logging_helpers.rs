@@ -25,6 +25,7 @@ pub enum Targets {
     DataDistribution,
     ProgramExecution,
     DataRecollection,
+    Synchronization,
 }
 
 impl Targets {
@@ -36,6 +37,7 @@ impl Targets {
             Targets::DataDistribution => "data_distr",
             Targets::ProgramExecution => "program_exec",
             Targets::DataRecollection => "data_recollect",
+            Targets::Synchronization => "sync",
         }
     }
 }

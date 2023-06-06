@@ -187,7 +187,8 @@ where
         from: PeerId,
         sync_jobs: SyncJobs<TDataId, TShardId>,
     ) -> Result<(), ApplySyncError> {
-        info!(
+        debug!(
+            target: Targets::Synchronization.into_str(),
             "Applying sync with {} jobs form {:?}",
             sync_jobs.as_linear().len(),
             from
@@ -200,7 +201,7 @@ where
             match self.inner.push_event(next_event, signature) {
                 Ok(()) => (),
                 Err(PushError::EventAlreadyExists(hash)) => {
-                    trace!("Received event {} is already known, skipping", hash)
+                    trace!(target: Targets::Synchronization.into_str(), "Received event {} is already known, skipping", hash)
                 }
                 Err(e) => return Err(e.into()),
             };
@@ -406,16 +407,16 @@ where
                             }
                         }
                         InEvent::ApplySync { from, sync } => {
-                            trace!("Applying sync from: {:?}", from);
+                            trace!(target: Targets::Synchronization.into_str(), "Applying sync from: {:?}", from);
                             connection.set_state(ModuleState::Busy);
                             trace!("Set consensus state to busy");
                             let apply_result = self.apply_sync(from, sync);
                             trace!("Set consensus state to ready");
                             connection.set_state(ModuleState::Ready);
                             if let Err(e) = apply_result {
-                                warn!("Failed to apply sync from peer {}: {}", from, e);
+                                warn!(target: Targets::Synchronization.into_str(), "Failed to apply sync from peer {}: {}", from, e);
                             } else{
-                                trace!("Applied sync successfully");
+                                trace!(target: Targets::Synchronization.into_str(), "Applied sync successfully");
                             }
                         },
                         InEvent::ScheduleTx(tx) => {

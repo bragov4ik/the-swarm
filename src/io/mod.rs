@@ -85,7 +85,7 @@ where
 
     // large program for testing performance
     let instructions = repeat(Instruction::plus(Vid(1), Vid(2), Vid(1)))
-        .take(100000)
+        .take(25000)
         .collect();
     let test_program = InputProgram { instructions };
 
