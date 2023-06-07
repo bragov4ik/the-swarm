@@ -86,15 +86,15 @@ send -- "schedule input/program.json"
 send -- "\r"
 expect -exact "Program scheduled successfully"
 
-# # halt a node
-# # exec kill -STOP $PID_FREEZE
-# set node_container_name thesis-node-2-1
-# exec docker pause $node_container_name
+# halt a node
+# exec kill -STOP $PID_FREEZE
+set node_container_name thesis-node-2-1
+exec docker pause $node_container_name
 
-# expect_user -timeout 10 -exact "continue"
+expect_user -timeout 10 -exact "continue"
 
-# # exec kill -CONT $PID_FREEZE
-# exec docker unpause $node_container_name
+# exec kill -CONT $PID_FREEZE
+exec docker unpause $node_container_name
 
 expect {
 	-timeout 20 -exact "finished execution\r" {}
