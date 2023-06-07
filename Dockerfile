@@ -1,6 +1,6 @@
 # syntax = docker/dockerfile:1.2
 
-FROM rust:1.69.0 as build
+FROM rust:1.70.0 as build
 
 COPY rust-hashgraph/Cargo.toml rust-hashgraph/Cargo.lock /rust-hashgraph/
 COPY rust-hashgraph/src /rust-hashgraph/src
