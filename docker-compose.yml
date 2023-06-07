@@ -12,12 +12,6 @@ x-node: &node
   tty: true
 
 services:
-  ui-node:
-    <<: *node
-    stdin_open: true
-    tty: true
-    environment:
-      - RUST_LOG="info,sync=debug"
   node-1:
     <<: *node
   node-2:

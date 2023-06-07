@@ -42,7 +42,8 @@ if {$force_conservative} {
 # -Don
 
 
-spawn bash -c "docker compose -f ./the-swarm/docker-compose.yml --project-directory . up"
+spawn bash -c "cd ../ && docker compose -f ./the-swarm/docker-compose.yml --project-directory . up"
+spawn bash -c "RUST_LOG=\"info\" cargo run --release --parity-shards 2"
 match_max 100000
 # wait for all 3 peers to connect
 expect -exact "Discovered peer"
