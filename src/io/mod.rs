@@ -63,7 +63,8 @@ where
     write_input(path_data, test_data).await?;
 
     // very simple program
-    let _test_program = InputProgram {
+    #[allow(unused)]
+    let test_program = InputProgram {
         instructions: vec![
             Instruction::plus(Vid(1), Vid(2), Vid(3)),
             Instruction::sub(Vid(1), Vid(2), Vid(4)),
@@ -79,7 +80,8 @@ where
     .take(10000)
     .flatten()
     .collect();
-    let _test_program = InputProgram { instructions };
+    #[allow(unused)]
+    let test_program = InputProgram { instructions };
 
     // large program for testing performance
     let instructions = repeat(Instruction::plus(Vid(1), Vid(2), Vid(1)))
