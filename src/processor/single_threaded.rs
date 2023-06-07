@@ -158,16 +158,34 @@ impl ShardProcessor {
         let BinaryOp { first, second } = binary;
         let first_cx = context.get(&first).cloned();
         let second_cx = context.get(&second).cloned();
-        let (first, second) = join!(
-            self.retrieve_operand(first, first_cx),
-            self.retrieve_operand(second, second_cx)
-        );
-        let operation = if let (Some(first), Some(second)) = (first?, second?) {
-            Some(BinaryOp { first, second })
-        } else {
-            None
-        };
-        Ok(operation)
+        // don't use heavy (?) join! macro if not necessary
+        match (first_cx, second_cx) {
+            (Some(first), Some(second)) => Ok(Some(BinaryOp { first, second })),
+            (Some(first), None) => {
+                let Some(second) = self.retrieve_operand(second, None).await? else {
+                    return Ok(None);
+                };
+                Ok(Some(BinaryOp { first, second }))
+            },
+            (None, Some(second)) => {
+                let Some(first) = self.retrieve_operand(first, None).await? else {
+                    return Ok(None);
+                };
+                Ok(Some(BinaryOp { first, second }))
+            },
+            (None, None) => {
+                let (first, second) = join!(
+                    self.retrieve_operand(first, None),
+                    self.retrieve_operand(second, None)
+                );
+                let operation = if let (Some(first), Some(second)) = (first?, second?) {
+                    Some(BinaryOp { first, second })
+                } else {
+                    None
+                };
+                Ok(operation)
+            },
+        }
     }
 
     async fn retrieve_unary(
