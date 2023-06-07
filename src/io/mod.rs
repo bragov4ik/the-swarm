@@ -72,16 +72,14 @@ where
     };
 
     // large program for testing consistency
-    let _instructions = repeat([
+    let instructions = repeat([
         Instruction::plus(Vid(1), Vid(2), Vid(1)),
         Instruction::plus(Vid(1), Vid(2), Vid(2)),
     ])
     .take(10000)
     .flatten()
     .collect();
-    let _test_program = InputProgram {
-        instructions: _instructions,
-    };
+    let _test_program = InputProgram { instructions };
 
     // large program for testing performance
     let instructions = repeat(Instruction::plus(Vid(1), Vid(2), Vid(1)))
