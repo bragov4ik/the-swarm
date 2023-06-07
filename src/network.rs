@@ -63,6 +63,7 @@ pub async fn new(
     key_seed: Option<u8>,
     encoding_settings: reed_solomon::Settings,
     run_ui: bool,
+    listen_address: libp2p::Multiaddr
 ) -> Result<
     (
         Swarm<CombinedBehaviour>,
@@ -183,7 +184,7 @@ pub async fn new(
 
     // Tell the swarm to listen on all interfaces and a random, OS-assigned
     // port.
-    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+    swarm.listen_on(listen_address)?;
 
     if run_ui {
         // repl is sync, so run it in a separate thread

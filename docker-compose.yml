@@ -7,8 +7,10 @@ x-node: &node
   volumes:
     - ./logs/docker:/app/logs
   # 2 data + 2 parity = 4 shards = 4 nodes
-  command: ["--parity-shards", "2"]
-  network_mode: "host"
+  command: ["--parity-shards", "2", "--listen-address", "/ip4/0.0.0.0/tcp/31337"]
+  networks:
+    - network1
+  # network_mode: "host"
 
 services:
   node-1:
@@ -18,3 +20,7 @@ services:
   node-3:
     <<: *node
 
+networks:
+  network1:
+    name: the-swarm-test-net-1
+    external: true

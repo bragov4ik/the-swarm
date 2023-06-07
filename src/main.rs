@@ -45,6 +45,9 @@ struct Args {
     #[clap(long)]
     generate_input: bool,
 
+    #[clap(long, default_value = "/ip4/0.0.0.0/tcp/0")]
+    listen_address: String,
+
     #[clap(short, long)]
     dial_address: Option<String>,
 
@@ -77,9 +80,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         data_shards_total: DATA_SHARDS_COUNT + args.parity_shards,
         data_shards_sufficient: DATA_SHARDS_COUNT,
     };
+    let listen_address: Multiaddr = args.listen_address.parse().unwrap();
 
     let (mut swarm, mut request_response_server, join_handles, shutdown_token) =
-        network::new(None, encoding_settings, args.interactive)
+        network::new(None, encoding_settings, args.interactive, listen_address)
             .await
             .unwrap();
 
