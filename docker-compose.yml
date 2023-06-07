@@ -10,6 +10,7 @@ x-node: &node
   command: ["--parity-shards", "2"]
   # without it the program stops immediately :(
   tty: true
+  network_mode: "host"
 
 services:
   node-1:
