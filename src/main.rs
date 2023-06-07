@@ -9,6 +9,7 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer,
 };
+use types::DATA_SHARDS_COUNT;
 
 use std::error::Error;
 use std::net::SocketAddr;
@@ -34,11 +35,6 @@ mod types;
 mod ui;
 
 const CHANNEL_BUFFER_LIMIT: usize = 100;
-// todo move to some spec file
-const ENCODING_SETTINGS: encoding::reed_solomon::Settings = encoding::reed_solomon::Settings {
-    data_shards_total: 3,
-    data_shards_sufficient: 2,
-};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -53,6 +49,9 @@ struct Args {
     #[clap(short, long)]
     dial_address: Option<String>,
 
+    #[clap(long, default_value_t = 1)]
+    parity_shards: u64,
+
     #[cfg(feature = "console-log")]
     #[clap(short, long)]
     console_subscriber_addr: Option<String>,
@@ -64,8 +63,6 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // println!("{}", crate::types::SHARD_BYTES_NUMBER * crate::types::DATA_SHARDS_COUNT);
-
     let args = Args::parse();
     if args.generate_input {
         crate::io::test_write_input(
@@ -77,8 +74,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    let encoding_settings = encoding::reed_solomon::Settings {
+        data_shards_total: DATA_SHARDS_COUNT + args.parity_shards,
+        data_shards_sufficient: DATA_SHARDS_COUNT,
+    };
+
     let (mut swarm, mut request_response_server, join_handles, shutdown_token) =
-        network::new(None).await.unwrap();
+        network::new(None, encoding_settings).await.unwrap();
 
     #[cfg(feature = "console-log")]
     let console_subscriber_addr = args.console_subscriber_addr;

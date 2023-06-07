@@ -6,16 +6,22 @@ x-node: &node
     dockerfile: ./the-swarm/Dockerfile
   volumes:
     - ./logs/docker:/app/logs
+  # 2 data + 2 parity = 4 shards = 4 nodes
+  command: ["--parity-shards", "2"]
+  # without it the program stops immediately :(
+  tty: true
 
 services:
   ui-node:
     <<: *node
     stdin_open: true
     tty: true
+    environment:
+      - RUST_LOG="info,sync=debug"
   node-1:
     <<: *node
-    tty: true
   node-2:
     <<: *node
-    tty: true
+  node-3:
+    <<: *node
 

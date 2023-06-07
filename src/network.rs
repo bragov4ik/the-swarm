@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use crate::consensus::graph::{EventPayload, GenesisPayload, GraphWrapper};
 use crate::data_memory::{DistributedDataMemory, MemoryBus};
+use crate::encoding::reed_solomon;
 use crate::instruction_storage::InstructionMemory;
 use crate::module::ModuleChannelServer;
 use crate::processor::single_threaded::ShardProcessor;
@@ -20,7 +21,7 @@ use crate::protocol::request_response::SwarmRequestResponse;
 use crate::protocol::versions::RequestResponseVersion;
 use crate::signatures::Ed25519Signer;
 use crate::types::{Sid, Vid};
-use crate::{behaviour, ui, CHANNEL_BUFFER_LIMIT, ENCODING_SETTINGS};
+use crate::{behaviour, ui, CHANNEL_BUFFER_LIMIT};
 
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "CombinedBehaviourEvent")]
@@ -60,6 +61,7 @@ impl From<crate::request_response::Event> for CombinedBehaviourEvent {
 
 pub async fn new(
     key_seed: Option<u8>,
+    encoding_settings: reed_solomon::Settings,
 ) -> Result<
     (
         Swarm<CombinedBehaviour>,
@@ -112,15 +114,18 @@ pub async fn new(
 
     // data memory
     let (memory_bus_data_memory, memory_bus_processor) = MemoryBus::channel(CHANNEL_BUFFER_LIMIT);
-    let data_memory =
-        DistributedDataMemory::new(local_peer_id, memory_bus_data_memory, ENCODING_SETTINGS);
+    let data_memory = DistributedDataMemory::new(
+        local_peer_id,
+        memory_bus_data_memory,
+        encoding_settings.clone(),
+    );
     let (data_memory_server, data_memory_client) =
         ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT, shutdown_token.clone());
     join_handles.push(tokio::spawn(data_memory.run(data_memory_server)));
 
     // instruction memory
     let instruction_memory =
-        InstructionMemory::new(ENCODING_SETTINGS.data_shards_sufficient.try_into().unwrap());
+        InstructionMemory::new(encoding_settings.data_shards_sufficient.try_into().unwrap());
     let (instruction_memory_server, instruction_memory_client) =
         ModuleChannelServer::new(None, CHANNEL_BUFFER_LIMIT, shutdown_token.clone());
     join_handles.push(tokio::spawn(
