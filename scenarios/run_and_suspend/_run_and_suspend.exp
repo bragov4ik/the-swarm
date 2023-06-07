@@ -141,5 +141,6 @@ send -- "\r"
 # Print the elapsed time
 puts "Elapsed time: $elapsed seconds"
 puts "Success!"
+exec >log 2>&1
 
 expect eof
