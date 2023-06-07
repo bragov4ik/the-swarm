@@ -87,14 +87,8 @@ send -- "\r"
 expect -exact "Program scheduled successfully"
 
 # halt a node
-# exec kill -STOP $PID_FREEZE
 set node_container_name the-swarm-node-2-1
 exec docker pause $node_container_name
-
-expect_user -timeout 10 -exact "continue"
-
-# exec kill -CONT $PID_FREEZE
-exec docker unpause $node_container_name
 
 expect {
 	-timeout 20 -exact "finished execution\r" {}
@@ -104,6 +98,8 @@ expect {
 # Calculate the elapsed time
 set end [clock clicks -microseconds]
 set elapsed [expr {($end - $start) / 1000000.0}]
+
+exec docker unpause $node_container_name
 
 send -- "get 1"
 send -- "\r"
