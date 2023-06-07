@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use thiserror::Error;
 use tokio::{
@@ -224,9 +224,22 @@ pub enum Error {
 }
 
 impl ShardProcessor {
-    async fn execute(&self, program: Instructions) -> Vec<Result<Vid, Error>> {
+    /// pre-fetch operands
+    async fn prepare_context(&self, program: &Instructions) -> HashMap<Vid, Shard> {
         let mut context = HashMap::new();
+        let needed_ids: HashSet<Vid> = program.iter().flat_map(|ins| ins.operation.args_as_list()).cloned().collect();
+        for id in needed_ids {
+            if let Ok(Some(val)) = self.retrieve_operand(id.clone(), None).await {
+                context.insert(id, val);
+            }
+        }
+        context
+    }
+
+    async fn execute(&self, program: Instructions, id: ProgramIdentifier) -> Vec<Result<Vid, Error>> {
+        let mut context = self.prepare_context(&program).await;
         let mut results = Vec::with_capacity(program.len());
+        debug!(target: Targets::ProgramExecution.into_str(), "Starting execution of program {:?}", id);
         for instruction in program {
             let Instruction {
                 operation,
@@ -242,6 +255,10 @@ impl ShardProcessor {
             };
             let output = Self::calculate(&operation);
             context.insert(result_id.clone(), output.clone());
+            results.push(Ok(result_id));
+        }
+        debug!(target: Targets::ProgramExecution.into_str(), "Saving results of execution of program {:?}", id);
+        for (result_id, output) in context {
             if let Err(e) = self
                 .memory_access
                 .store_local_shard(result_id.clone(), output)
@@ -250,7 +267,6 @@ impl ShardProcessor {
                 results.push(Err(e));
                 continue;
             };
-            results.push(Ok(result_id));
         }
         results
     }
@@ -271,12 +287,9 @@ impl ShardProcessor {
                     };
                     match in_event {
                         InEvent::Execute(program) => {
-                            let program_id = program.identifier.clone();
                             connection.set_state(ModuleState::Executing);
-                            debug!(target: Targets::ProgramExecution.into_str(), "Starting execution of program {:?}", program_id);
                             let (instructions, program_id) = program.into_parts();
-                            let results = self.execute(instructions).await;
-                            debug!(target: Targets::ProgramExecution.into_str(), "Saving results of execution of program {:?}", program_id);
+                            let results = self.execute(instructions, program_id.clone()).await;
                             if let Err(_) = connection.output.send(
                                 OutEvent::FinishedExecution { program_id, results }
                             ).await {

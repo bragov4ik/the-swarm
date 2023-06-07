@@ -103,6 +103,15 @@ pub enum Operation<TOperand> {
     Inv(UnaryOp<TOperand>),
 }
 
+impl<TOperand> Operation<TOperand> {
+    pub fn args_as_list(&self) -> Vec<&TOperand> {
+        match self {
+            Operation::Sub(BinaryOp { first, second }) | Operation::Plus(BinaryOp { first, second }) => vec![first, second],
+            Operation::Inv(UnaryOp { operand }) => vec![operand],
+        }
+    }
+}
+
 impl_binary_constructor!(sub, Sub);
 impl_binary_constructor!(plus, Plus);
 impl_unary!(inv, Inv);
