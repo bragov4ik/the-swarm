@@ -1,0 +1,10 @@
+2023-06-07T23:18:18MSK Time of program local execution: 1.965236
+2023-06-07T23:18:31MSK Time of program local execution: 1.973554
+2023-06-07T23:18:34MSK Time of program local execution: 1.937188
+2023-06-07T23:18:36MSK Time of program local execution: 1.971957
+2023-06-07T23:18:39MSK Time of program local execution: 2.262793
+2023-06-07T23:18:41MSK Time of program local execution: 1.989199
+2023-06-07T23:18:44MSK Time of program local execution: 2.071255
+2023-06-07T23:18:46MSK Time of program local execution: 1.958524
+2023-06-07T23:18:48MSK Time of program local execution: 2.112606
+2023-06-07T23:18:51MSK Time of program local execution: 1.982687
