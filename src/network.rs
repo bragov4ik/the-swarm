@@ -62,6 +62,7 @@ impl From<crate::request_response::Event> for CombinedBehaviourEvent {
 pub async fn new(
     key_seed: Option<u8>,
     encoding_settings: reed_solomon::Settings,
+    run_ui: bool,
 ) -> Result<
     (
         Swarm<CombinedBehaviour>,
@@ -184,9 +185,17 @@ pub async fn new(
     // port.
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
-    // repl is sync, so run it in a separate thread
-    let cloned_shutdown = shutdown_token.clone();
-    std::thread::spawn(|| ui::run_repl(behaviour_client, cloned_shutdown));
+    if run_ui {
+        // repl is sync, so run it in a separate thread
+        let cloned_shutdown = shutdown_token.clone();
+        std::thread::spawn(|| ui::run_repl(behaviour_client, cloned_shutdown));
+    } else {
+        // dummy receiver to not close the channel
+        join_handles.push(tokio::spawn(async move {
+            let mut behaviour_client = behaviour_client;
+            while let Some(_) = behaviour_client.output.recv().await {}
+        }));
+    }
 
     Ok((swarm, request_response_server, join_handles, shutdown_token))
 }

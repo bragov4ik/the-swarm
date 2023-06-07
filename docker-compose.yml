@@ -8,8 +8,6 @@ x-node: &node
     - ./logs/docker:/app/logs
   # 2 data + 2 parity = 4 shards = 4 nodes
   command: ["--parity-shards", "2"]
-  # without it the program stops immediately :(
-  tty: true
   network_mode: "host"
 
 services:

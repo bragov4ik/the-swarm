@@ -39,9 +39,8 @@ const CHANNEL_BUFFER_LIMIT: usize = 100;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Is this node a main one (that does all the stuff for demo)
     #[clap(short, long)]
-    is_main: bool,
+    interactive: bool,
 
     #[clap(long)]
     generate_input: bool,
@@ -80,7 +79,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let (mut swarm, mut request_response_server, join_handles, shutdown_token) =
-        network::new(None, encoding_settings).await.unwrap();
+        network::new(None, encoding_settings, args.interactive)
+            .await
+            .unwrap();
 
     #[cfg(feature = "console-log")]
     let console_subscriber_addr = args.console_subscriber_addr;
