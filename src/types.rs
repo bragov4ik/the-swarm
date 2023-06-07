@@ -15,7 +15,7 @@ pub struct Sid(pub u64);
 compile_error!("'big-array' and 'medium-array' features are mutually exclusive");
 
 #[cfg(feature = "big-array")]
-pub const SHARD_BYTES_NUMBER: u64 = 2u64.pow(10);
+pub const SHARD_BYTES_NUMBER: u64 = 2u64.pow(14);
 #[cfg(feature = "medium-array")]
 pub const SHARD_BYTES_NUMBER: u64 = 64;
 #[cfg(all(not(feature = "big-array"), not(feature = "medium-array")))]

@@ -63,7 +63,7 @@ pub async fn new(
     key_seed: Option<u8>,
     encoding_settings: reed_solomon::Settings,
     run_ui: bool,
-    listen_address: libp2p::Multiaddr
+    listen_address: libp2p::Multiaddr,
 ) -> Result<
     (
         Swarm<CombinedBehaviour>,
