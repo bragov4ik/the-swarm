@@ -62,7 +62,10 @@ expect -re {(id Vid\(2\) was successfully.*id Vid\(1\) was successfully)|(id Vid
 send -- "schedule input/large_array/program.json"
 send -- "\r"
 expect -exact "Program scheduled successfully"
-expect -exact "finished execution\r"
+expect {
+	-timeout 20 -exact "finished execution\r" {}
+	timeout { puts "Did not receive expected response"; exit 1 }
+}
 
 # Calculate the elapsed time
 set end [clock clicks -microseconds]

@@ -76,7 +76,10 @@ expect -exact "Starting execution of program"
 set start_program_local_exec [clock clicks -microseconds]
 expect -exact "Saving results of execution of program"
 set end_program_local_exec [clock clicks -microseconds]
-expect -exact "finished execution\r"
+expect {
+	-timeout 20 -exact "finished execution\r" {}
+	timeout { puts "Did not receive expected response"; exit 1 }
+}
 
 set end_program_full_exec_start_data_recollect [clock clicks -microseconds]
 
