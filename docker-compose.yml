@@ -2,8 +2,7 @@ version: "3.9"
 
 x-node: &node
   build:
-    context: ./
-    dockerfile: ./the-swarm/Dockerfile
+    context: .
   volumes:
     - ./logs/docker:/app/logs
   # 2 data + 2 parity = 4 shards = 4 nodes

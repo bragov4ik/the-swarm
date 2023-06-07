@@ -88,7 +88,7 @@ expect -exact "Program scheduled successfully"
 
 # halt a node
 # exec kill -STOP $PID_FREEZE
-set node_container_name thesis-node-2-1
+set node_container_name the-swarm-node-2-1
 exec docker pause $node_container_name
 
 expect_user -timeout 10 -exact "continue"
@@ -141,6 +141,5 @@ send -- "\r"
 # Print the elapsed time
 puts "Elapsed time: $elapsed seconds"
 puts "Success!"
-exec >log 2>&1
 
 expect eof

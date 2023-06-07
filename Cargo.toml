@@ -13,7 +13,7 @@ futures = "0.3"
 libp2p = { version = "0.51.2", features = ["serde", "tcp", "mdns", "tokio", "async-std", "macros", "websocket", "noise", "mplex", "yamux", "dns", "request-response"] }
 libp2p-request-response = "0.24.1"
 # Add integration of actual consensus
-rust-hashgraph = { path = "../rust-hashgraph" }
+rust-hashgraph = { git = "https://github.com/bragov4ik/rust-hashgraph.git", branch = "master" }
 rand = "0.8.5"
 thiserror = "1.0"
 tokio = { version = "1.27.0", features = ["full", "tracing"] }
