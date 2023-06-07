@@ -96,7 +96,9 @@ async fn handle_schedule_exec(filename: &str, input: &Sender<InEvent>) -> anyhow
 }
 
 async fn handle_expected_output(data_filename: &str, program_filename: &str) -> anyhow::Result<()> {
+    println!("Reading program...");
     let program = read_input::<_, InputProgram>(program_filename).await?;
+    println!("Reading data...");
     let data = read_input::<_, InputData>(data_filename).await?;
     let program = Program::new(program.instructions, Hash::from_array([0; 64]))?;
     let mut data_storage: HashMap<Vid, Data> = data.data.into_iter().collect();

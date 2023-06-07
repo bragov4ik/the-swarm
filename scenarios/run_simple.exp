@@ -43,7 +43,7 @@ if {$force_conservative} {
 
 
 set timeout -1
-spawn cargo run --release
+spawn cargo run --release -- -i
 match_max 100000
 # wait for 2 peers to connect
 expect -exact "Discovered peer"

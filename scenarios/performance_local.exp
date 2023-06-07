@@ -43,7 +43,7 @@ if {$force_conservative} {
 
 
 set timeout -1
-spawn bash -c "RUST_LOG=\"info,program_exec=debug\" cargo run --release --features big-array"
+spawn bash -c "RUST_LOG=\"info,program_exec=debug\" cargo run --release --features big-array -- -i"
 match_max 100000
 
 expect -exact "Local node is listening on"

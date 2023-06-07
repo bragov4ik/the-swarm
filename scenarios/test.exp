@@ -1,9 +1,0 @@
-#!/usr/bin/expect -f
-
-set fo [open benchmark_results.txt a]
-set systemTime [clock seconds]
-puts $fo "[clock format $systemTime -format %Y-%m-%dT%H:%M:%S%Z] test run:"
-puts $fo "time to live: aboba"
-puts $fo "time to not care: always"
-puts $fo "time to die: never\n"
-close $fo
