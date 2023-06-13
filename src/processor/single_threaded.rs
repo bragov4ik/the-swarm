@@ -166,13 +166,13 @@ impl ShardProcessor {
                     return Ok(None);
                 };
                 Ok(Some(BinaryOp { first, second }))
-            },
+            }
             (None, Some(second)) => {
                 let Some(first) = self.retrieve_operand(first, None).await? else {
                     return Ok(None);
                 };
                 Ok(Some(BinaryOp { first, second }))
-            },
+            }
             (None, None) => {
                 let (first, second) = join!(
                     self.retrieve_operand(first, None),
@@ -184,7 +184,7 @@ impl ShardProcessor {
                     None
                 };
                 Ok(operation)
-            },
+            }
         }
     }
 
@@ -245,7 +245,11 @@ impl ShardProcessor {
     /// pre-fetch operands
     async fn prepare_context(&self, program: &Instructions) -> HashMap<Vid, Shard> {
         let mut context = HashMap::new();
-        let needed_ids: HashSet<Vid> = program.iter().flat_map(|ins| ins.operation.args_as_list()).cloned().collect();
+        let needed_ids: HashSet<Vid> = program
+            .iter()
+            .flat_map(|ins| ins.operation.args_as_list())
+            .cloned()
+            .collect();
         for id in needed_ids {
             if let Ok(Some(val)) = self.retrieve_operand(id.clone(), None).await {
                 context.insert(id, val);
@@ -254,7 +258,11 @@ impl ShardProcessor {
         context
     }
 
-    async fn execute(&self, program: Instructions, id: ProgramIdentifier) -> Vec<Result<Vid, Error>> {
+    async fn execute(
+        &self,
+        program: Instructions,
+        id: ProgramIdentifier,
+    ) -> Vec<Result<Vid, Error>> {
         let mut context = self.prepare_context(&program).await;
         let mut results = Vec::with_capacity(program.len());
         debug!(target: Targets::ProgramExecution.into_str(), "Starting execution of program {:?}", id);

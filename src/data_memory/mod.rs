@@ -20,7 +20,7 @@ use std::collections::{hash_map, HashMap, HashSet};
 use libp2p::PeerId;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::logging_helpers::Targets;
 use crate::module::ModuleChannelServer;
@@ -424,8 +424,9 @@ impl InitializedDataMemory {
             warn!("Peer that announced that it stores assigned shard doesn't have it. Misbehaviour??");
             return HandleResult::Ok;
         };
+        debug!(target: Targets::DataRecollection.into_str(), "Received shard {:?} for data {:?} from a peer", full_shard_id.1, full_shard_id.0);
         let Some(received_shards) = self.currently_assembled.get_mut(&full_shard_id.0) else {
-            debug!("received shard was likely already assembled, skipping");
+            debug!(target: Targets::DataRecollection.into_str(), "received shard was likely already assembled, skipping");
             return HandleResult::Ok;
         };
         if !received_shards.contains_key(&full_shard_id.1) {
@@ -437,6 +438,7 @@ impl InitializedDataMemory {
                 .try_into()
                 .expect("# of shards sufficient is too large");
             if received_shards.len() >= sufficient_shards_n {
+                debug!(target: Targets::DataRecollection.into_str(), "Enough shards for {:?} were found, we can assemble the data", full_shard_id.0);
                 // # of shards is sufficient to reassemble
                 let shards = self
                     .currently_assembled
@@ -625,6 +627,7 @@ impl InitializedDataMemory {
                         // data recollection
                         InEvent::RecollectRequest(data_id) => {
                             let Some(known_locations) = self.data_known_locations.get(&data_id) else {
+                                debug!(target: Targets::DataRecollection.into_str(), "Do not know about {:?}", data_id);
                                 if let Err(_) = connection.output.send(
                                     OutEvent::RecollectResponse(Err(RecollectionError::UnkonwnDataId))
                                 ).await {
@@ -633,11 +636,13 @@ impl InitializedDataMemory {
                                 }
                                 continue;
                             };
+                            trace!(target: Targets::DataRecollection.into_str(), "We know data {:?} distribution: {:?}", data_id, known_locations);
                             let sufficient_shards_n = self.encoding.settings()
                                 .data_shards_sufficient
                                 .try_into()
                                 .expect("# of shards sufficient is too large");
                             if known_locations.len() < sufficient_shards_n {
+                                debug!(target: Targets::DataRecollection.into_str(), "We do not know enough locations of data {:?}: we track {}/{} sufficient shards", data_id, known_locations.len(), sufficient_shards_n);
                                 if let Err(_) = connection.output.send(
                                     OutEvent::RecollectResponse(Err(RecollectionError::NotEnoughShards))
                                 ).await {
@@ -647,14 +652,18 @@ impl InitializedDataMemory {
                                 continue;
                             }
                             match self.currently_assembled.entry(data_id.clone()) {
-                                // requests were already sent, just join the waiting list
-                                hash_map::Entry::Occupied(_) => (),
+                                // requests were already sent, just wait for the response
+                                hash_map::Entry::Occupied(_) => {
+                                    debug!(target: Targets::DataRecollection.into_str(), "Data {:?} is already in process of recollection", data_id);
+                                    continue;
+                                },
                                 hash_map::Entry::Vacant(v) => {
                                     v.insert(HashMap::new());
                                 },
                             }
                             for (shard_id, owner) in known_locations.clone() {
                                 if owner == self.local_id {
+                                    trace!(target: Targets::DataRecollection.into_str(), "Getting shard {:?} from local storage", shard_id);
                                     let full_shard_id = (data_id.clone(), shard_id);
                                     let shard = self.get_shard(&full_shard_id).cloned();
                                     // imitate incoming `ServeShardResponse`
@@ -667,6 +676,7 @@ impl InitializedDataMemory {
                                     }
                                 }
                                 else {
+                                    trace!(target: Targets::DataRecollection.into_str(), "Requesting shard {:?} from peer {:?}", shard_id, owner);
                                     if let Err(_) = connection.output.send(OutEvent::AssignedRequest(
                                         (data_id.clone(), shard_id),
                                         owner.clone()

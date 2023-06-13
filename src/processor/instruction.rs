@@ -106,7 +106,8 @@ pub enum Operation<TOperand> {
 impl<TOperand> Operation<TOperand> {
     pub fn args_as_list(&self) -> Vec<&TOperand> {
         match self {
-            Operation::Sub(BinaryOp { first, second }) | Operation::Plus(BinaryOp { first, second }) => vec![first, second],
+            Operation::Sub(BinaryOp { first, second })
+            | Operation::Plus(BinaryOp { first, second }) => vec![first, second],
             Operation::Inv(UnaryOp { operand }) => vec![operand],
         }
     }

@@ -17,6 +17,13 @@ def parse_csv(filename):
     return data
 
 
+def process_data(df):
+    elems = zip(df['TotalExecution'], df['ProgramInclusion'],
+                df['LocalQueue'], df['LocalExecution'])
+    new_list = [a - b - c - d for (a, b, c, d) in elems]
+    df['PendingConsensus'] = new_list
+    return df
+
 def calculate_stats(data):
     stats = {}
 
@@ -40,5 +47,6 @@ if len(sys.argv) < 2:
 filename = sys.argv[1]
 
 data = parse_csv(filename)
+data = process_data(data)
 stats = calculate_stats(data)
 print_stats(stats)

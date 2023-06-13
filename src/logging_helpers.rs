@@ -19,8 +19,10 @@ macro_rules! channel_log_recv {
 }
 
 pub enum Targets {
+    // tokio channels:
     ChannelSend,
     ChannelRecv,
+    // workflows:
     StorageInitialization,
     DataDistribution,
     ProgramExecution,

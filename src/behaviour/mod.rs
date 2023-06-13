@@ -607,6 +607,7 @@ impl NetworkBehaviour for Behaviour {
                         self.consensus_gossip_timer.reset_full();
                     },
                     InEvent::Get(data_id) => {
+                        debug!(target: Targets::DataRecollection.into_str(), "Starting recollection of data {:?}", data_id);
                         let event = data_memory::InEvent::RecollectRequest(data_id);
                         let send_future = self.data_memory.input.send(event.clone());
                         pin_mut!(send_future);
