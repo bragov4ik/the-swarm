@@ -6,7 +6,7 @@ Utilizes [our implementation](https://github.com/bragov4ik/rust-hashgraph) of [H
 
 Currently supports only addition, subtraction, and inversion in Galois field of order $2^8$. (Basically only addition, because subtraction is exactly addition, and inversion is equality).
 
-This project was written as Bachelor's degree thesis within Innopolis University in 2022-2023 academic year. Link for the paper will be placed [here] later.
+This project was written as Bachelor's degree thesis within Innopolis University in 2022-2023 academic year. Link for the published version will be placed [HERE] later.
 
 Also it was started as 2022 Summer internship at Innopolis University. Schedule and linked reports for the internship can be found [here](https://hackmd.io/H1iKRHrdTiCnZi7QLK0wrw).
 
@@ -48,7 +48,7 @@ docker network rm the-swarm-test-net-1
 ```
 
 ## Test scenarios launch
-The tests are written for [Expect] utility. Thus, it's required to run them.
+The tests are written for [Expect](https://core.tcl-lang.org/expect/index) utility. Thus, it's required to run them.
 
 All tests except for [run_and_suspend](./scenarios/run_and_suspend/) require other peers to be launched manually (instructions for this scenario are described in [Section "Run and suspend test"](#run-and-suspend-test)). In other words, for 3 peer network, the launch process can be the following:
 1. Launch 2 peers with `cargo run --release -- -i`
