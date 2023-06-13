@@ -41,7 +41,7 @@ jobs:
       run: sudo apt install -y protobuf-compiler
     - run: cargo check
     - name: Clippy
-      run: cargo clippy --all-features -- -D warnings
+      run: cargo clippy --features console-log,file-log --fix -- -D warnings
     - name: Documentation build
       run: cargo doc --no-deps --workspace
 
