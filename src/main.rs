@@ -1,9 +1,9 @@
 use clap::Parser;
-use console_subscriber::ConsoleLayer;
 use futures::StreamExt;
 use libp2p::swarm::SwarmEvent;
 use libp2p::Multiaddr;
 use libp2p::{mdns, PeerId};
+use std::error::Error;
 use tracing::{debug, error, info, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
@@ -11,7 +11,9 @@ use tracing_subscriber::{
 };
 use types::DATA_SHARDS_COUNT;
 
-use std::error::Error;
+#[cfg(feature = "console-log")]
+use console_subscriber::ConsoleLayer;
+#[cfg(feature = "console-log")]
 use std::net::SocketAddr;
 
 use crate::network::CombinedBehaviourEvent;
@@ -196,10 +198,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 /// Returned guard should be dropped at the end of program execution
 /// (see docs for details)
 fn configure_logs(
-    local_id: PeerId,
-    console_subscriber_addr: Option<String>,
+    #[allow(unused)] local_id: PeerId,
+    #[allow(unused)] console_subscriber_addr: Option<String>,
 ) -> Option<WorkerGuard> {
-    #[allow(unused_assignments)]
+    #[allow(unused_assignments, unused_mut)]
     let mut guard = None;
     #[cfg(feature = "file-log")]
     let file_layer = {
