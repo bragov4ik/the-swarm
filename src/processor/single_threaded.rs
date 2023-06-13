@@ -236,7 +236,7 @@ pub enum Error {
     #[error("Channel for getting response from memory bus was closed")]
     ResponseChannelClosed,
     #[error(transparent)]
-    EncodingError(#[from] encoding::mock::Error),
+    Encoding(#[from] encoding::mock::Error),
     #[error("This peer is not assigned to shards from the operation")]
     NoShardsAssigned,
 }
@@ -316,9 +316,9 @@ impl ShardProcessor {
                             connection.set_state(ModuleState::Executing);
                             let (instructions, program_id) = program.into_parts();
                             let results = self.execute(instructions, program_id.clone()).await;
-                            if let Err(_) = connection.output.send(
+                            if (connection.output.send(
                                 OutEvent::FinishedExecution { program_id, results }
-                            ).await {
+                            ).await).is_err() {
                                 error!("`connection.output` is closed, shuttung down processor");
                                 return;
                             }

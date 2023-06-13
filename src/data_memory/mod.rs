@@ -234,7 +234,7 @@ impl UninitializedDataMemory {
                             }
                             info!("storage initialized, ready");
                             debug!(target: Targets::StorageInitialization.into_str(), "Notifying the user");
-                            if let Err(_) = connection.output.send(OutEvent::Initialized).await {
+                            if (connection.output.send(OutEvent::Initialized).await).is_err() {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return None;
                             }
@@ -402,10 +402,11 @@ impl InitializedDataMemory {
             "Storing shard {:?}", full_shard_id
         );
         self.store_shard(full_shard_id.clone(), shard);
-        if let Err(_) = connection
+        if (connection
             .output
             .send(OutEvent::AssignedStoreSuccess(full_shard_id))
-            .await
+            .await)
+            .is_err()
         {
             error!("`connection.output` is closed, shuttung down data memory");
             return HandleResult::Abort;
@@ -452,13 +453,14 @@ impl InitializedDataMemory {
                         return HandleResult::Ok;
                     }
                 };
-                if let Err(_) = connection
+                if connection
                     .output
                     .send(OutEvent::RecollectResponse(Ok((
                         full_shard_id.0,
                         data.clone(),
                     ))))
                     .await
+                    .is_err()
                 {
                     error!("`connection.output` is closed, shuttung down data memory");
                     return HandleResult::Abort;
@@ -505,9 +507,11 @@ impl InitializedDataMemory {
                                 target: Targets::DataDistribution.into_str(),
                                 "Prepared to serve shards of {:?}", data_id
                             );
-                            if let Err(_) = connection.output.send(
-                                OutEvent::PreparedServiceResponse(data_id)
-                            ).await {
+                            if connection.output.send(
+                                    OutEvent::PreparedServiceResponse(data_id)
+                                ).await
+                                .is_err()
+                            {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return;
                             }
@@ -539,9 +543,9 @@ impl InitializedDataMemory {
                                     target: Targets::DataDistribution.into_str(),
                                     "Requesting shard {:?} for {:?}", assigned_sid, data_id
                                 );
-                                if let Err(_) = connection.output.send(
+                                if (connection.output.send(
                                     OutEvent::ServeShardRequest((data_id, assigned_sid.clone()), author)
-                                ).await {
+                                ).await).is_err() {
                                     error!("`connection.output` is closed, shuttung down data memory");
                                     return;
                                 }
@@ -549,7 +553,7 @@ impl InitializedDataMemory {
                         },
                         InEvent::ServeShardRequest(full_shard_id) => {
                             let shard = self.serve_shard(&full_shard_id);
-                            if let Err(_) = connection.output.send(OutEvent::ServeShardResponse(full_shard_id, shard)).await {
+                            if (connection.output.send(OutEvent::ServeShardResponse(full_shard_id, shard)).await).is_err() {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return;
                             }
@@ -585,9 +589,9 @@ impl InitializedDataMemory {
                                     target: Targets::DataDistribution.into_str(),
                                     "Enough shards were distributed, reporting to the user as a sufficient distribution"
                                 );
-                                if let Err(_) = connection.output.send(
+                                if (connection.output.send(
                                     OutEvent::DistributionSufficient(full_shard_id.0.clone())
-                                ).await {
+                                ).await).is_err() {
                                     error!("`connection.output` is closed, shuttung down data memory");
                                     return;
                                 }
@@ -598,9 +602,9 @@ impl InitializedDataMemory {
                                     "All shards were distributed, reporting to the user as a full distribution"
                                 );
                                 self.to_distribute.remove(&full_shard_id.0);
-                                if let Err(_) = connection.output.send(
+                                if (connection.output.send(
                                     OutEvent::DistributionFull(full_shard_id.0)
-                                ).await {
+                                ).await).is_err() {
                                     error!("`connection.output` is closed, shuttung down data memory");
                                     return;
                                 }
@@ -608,7 +612,7 @@ impl InitializedDataMemory {
                         },
                         InEvent::AssignedRequest(full_shard_id) => {
                             let shard = self.get_shard(&full_shard_id);
-                            if let Err(_) = connection.output.send(OutEvent::AssignedResponse(full_shard_id, shard.cloned())).await {
+                            if (connection.output.send(OutEvent::AssignedResponse(full_shard_id, shard.cloned())).await).is_err() {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return;
                             }
@@ -619,7 +623,7 @@ impl InitializedDataMemory {
                                 .filter(|(_, locations)| locations.len() >= sufficient_shards.try_into().unwrap())
                                 .map(|(a, b)| (a.clone(), b.clone()))
                                 .collect();
-                            if let Err(_) = connection.output.send(OutEvent::ListDistributed(distributed)).await {
+                            if (connection.output.send(OutEvent::ListDistributed(distributed)).await).is_err() {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return;
                             }
@@ -628,9 +632,9 @@ impl InitializedDataMemory {
                         InEvent::RecollectRequest(data_id) => {
                             let Some(known_locations) = self.data_known_locations.get(&data_id) else {
                                 debug!(target: Targets::DataRecollection.into_str(), "Do not know about {:?}", data_id);
-                                if let Err(_) = connection.output.send(
+                                if (connection.output.send(
                                     OutEvent::RecollectResponse(Err(RecollectionError::UnkonwnDataId))
-                                ).await {
+                                ).await).is_err() {
                                     error!("`connection.output` is closed, shuttung down data memory");
                                     return;
                                 }
@@ -643,9 +647,9 @@ impl InitializedDataMemory {
                                 .expect("# of shards sufficient is too large");
                             if known_locations.len() < sufficient_shards_n {
                                 debug!(target: Targets::DataRecollection.into_str(), "We do not know enough locations of data {:?}: we track {}/{} sufficient shards", data_id, known_locations.len(), sufficient_shards_n);
-                                if let Err(_) = connection.output.send(
+                                if (connection.output.send(
                                     OutEvent::RecollectResponse(Err(RecollectionError::NotEnoughShards))
-                                ).await {
+                                ).await).is_err() {
                                     error!("`connection.output` is closed, shuttung down data memory");
                                     return;
                                 }
@@ -677,10 +681,10 @@ impl InitializedDataMemory {
                                 }
                                 else {
                                     trace!(target: Targets::DataRecollection.into_str(), "Requesting shard {:?} from peer {:?}", shard_id, owner);
-                                    if let Err(_) = connection.output.send(OutEvent::AssignedRequest(
+                                    if (connection.output.send(OutEvent::AssignedRequest(
                                         (data_id.clone(), shard_id),
                                         owner
-                                    )).await {
+                                    )).await).is_err() {
                                         error!("`connection.output` is closed, shuttung down data memory");
                                         return;
                                     }
@@ -774,7 +778,7 @@ impl DistributedDataMemory {
         tokio::select! {
             _ = self.run_memory(connection) => { }
             _ = shutdown.cancelled() => {
-                info!("received cancel signal, shutting down data memory");;
+                info!("received cancel signal, shutting down data memory");
             }
         }
     }

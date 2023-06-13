@@ -49,13 +49,13 @@ where
 {
     let mut first =
         [0u8; (crate::types::SHARD_BYTES_NUMBER * crate::types::DATA_SHARDS_COUNT) as usize];
-    for i in 0..first.len() {
-        first[i] = thread_rng().gen_range(u8::MIN..=u8::MAX);
+    for byte in &mut first {
+        *byte = thread_rng().gen_range(u8::MIN..=u8::MAX);
     }
     let mut second =
         [0u8; (crate::types::SHARD_BYTES_NUMBER * crate::types::DATA_SHARDS_COUNT) as usize];
-    for i in 0..second.len() {
-        second[i] = thread_rng().gen_range(u8::MIN..=u8::MAX);
+    for byte in &mut second {
+        *byte = thread_rng().gen_range(u8::MIN..=u8::MAX);
     }
     let test_data = InputData {
         data: vec![(Vid(1), Data(first)), (Vid(2), Data(second))],

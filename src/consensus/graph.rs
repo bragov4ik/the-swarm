@@ -186,7 +186,7 @@ where
         &mut self,
         from: PeerId,
         sync_jobs: SyncJobs<TDataId, TShardId>,
-    ) -> Result<(), ApplySyncError> {
+    ) -> Result<(), Box<ApplySyncError>> {
         debug!(
             target: Targets::Synchronization.into_str(),
             "Applying sync with {} jobs form {:?}",
@@ -203,7 +203,7 @@ where
                 Err(PushError::EventAlreadyExists(hash)) => {
                     trace!(target: Targets::Synchronization.into_str(), "Received event {} is already known, skipping", hash)
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(Box::new(e.into())),
             };
         }
         let txs = std::mem::take(&mut self.included_transaction_buffer);
@@ -214,12 +214,14 @@ where
             .inner
             .peer_latest_event(&from)
             .ok_or_else(|| ApplySyncError::UnknownPeer(from))?;
-        self.inner.create_event(payload, other_parent.clone())?;
+        self.inner
+            .create_event(payload, other_parent.clone())
+            .map_err(|e| Box::new(e.into()))?;
         self.included_transaction_buffer.clear();
         Ok(())
     }
 
-    pub fn create_standalone_event(&mut self) -> Result<(), EventCreateError<PeerId>> {
+    pub fn create_standalone_event(&mut self) -> Result<(), Box<EventCreateError<PeerId>>> {
         self.state_updated.notify_one();
         let txs = std::mem::take(&mut self.included_transaction_buffer);
         let payload = EventPayload { transactions: txs };
@@ -366,7 +368,7 @@ where
                         NextTx::Recognized((from, tx, event_hash)) => OutEvent::RecognizedTransaction { from, tx, event_hash },
                         NextTx::Finalized((from, tx, event_hash)) => OutEvent::FinalizedTransaction { from, tx, event_hash },
                     };
-                    if let Err(_) = connection.output.send(out_event).await {
+                    if (connection.output.send(out_event).await).is_err() {
                         info!("`connection.output` is closed, shuttung down consensus");
                         return;
                     }
@@ -393,14 +395,14 @@ where
                             connection.set_state(ModuleState::Ready);
                             trace!("Generated sync successfully");
                             // todo: maybe use `try_send` or `reserve` on each send
-                            if let Err(_) = connection.output.send(OutEvent::GenerateSyncResponse { to, sync }).await {
+                            if (connection.output.send(OutEvent::GenerateSyncResponse { to, sync }).await).is_err() {
                                 error!("`connection.output` is closed, shuttung down consensus");
                                 return;
                             }
                         },
                         InEvent::KnownPeersRequest => {
                             trace!("Returning list of known peers");
-                            if let Err(_) = connection.output.send(OutEvent::KnownPeersResponse(self.inner.peers())).await {
+                            if (connection.output.send(OutEvent::KnownPeersResponse(self.inner.peers())).await).is_err() {
                                 error!("`connection.output` is closed, shuttung down consensus");
                                 return;
                             }
@@ -420,10 +422,8 @@ where
                         },
                         InEvent::ScheduleTx(tx) => {
                             trace!("Scheduling transaction: {:?}", tx);
-                            match &tx {
-                                Transaction::InitializeStorage { distribution: _ } =>
-                                debug!(target: Targets::StorageInitialization.into_str(), "Scheduling init transaction for inclusion in event"),
-                                _ => (),
+                            if let Transaction::InitializeStorage { distribution: _ } = &tx {
+                                debug!(target: Targets::StorageInitialization.into_str(), "Scheduling init transaction for inclusion in event");
                             }
                             self.push_tx(tx);
                         },

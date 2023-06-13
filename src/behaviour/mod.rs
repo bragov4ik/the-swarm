@@ -148,6 +148,7 @@ pub struct Behaviour {
 }
 
 impl Behaviour {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         local_peer_id: PeerId,
         consensus_gossip_min_timeout: Duration,
@@ -234,8 +235,10 @@ impl NetworkBehaviour for Behaviour {
         _remote_addr: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         debug!("Creating new inbound connection handler");
-        let mut cfg = libp2p::swarm::OneShotHandlerConfig::default();
-        cfg.keep_alive_timeout = Duration::from_secs(60);
+        let cfg = libp2p::swarm::OneShotHandlerConfig {
+            keep_alive_timeout: Duration::from_secs(60),
+            ..Default::default()
+        };
         Ok(libp2p::swarm::OneShotHandler::new(
             libp2p::swarm::SubstreamProtocol::new(Default::default(), ()),
             cfg,
@@ -250,8 +253,10 @@ impl NetworkBehaviour for Behaviour {
         _role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         debug!("Creating new out bound connection handler");
-        let mut cfg = libp2p::swarm::OneShotHandlerConfig::default();
-        cfg.keep_alive_timeout = Duration::from_secs(60);
+        let cfg = libp2p::swarm::OneShotHandlerConfig {
+            keep_alive_timeout: Duration::from_secs(60),
+            ..Default::default()
+        };
         Ok(libp2p::swarm::OneShotHandler::new(
             libp2p::swarm::SubstreamProtocol::new(Default::default(), ()),
             cfg,
@@ -361,37 +366,34 @@ impl NetworkBehaviour for Behaviour {
             // Maybe break on Pending?
             let _ = state_updated_notification.poll(cx);
 
-            match self.oneshot_messages.pop_back() {
-                Some(s) => {
-                    trace!("Got a simple message");
-                    match s.event {
-                        SimpleMessage(protocol::Simple::GossipGraph(sync)) => {
-                            channel_log_recv!(
-                                "network.simple",
-                                format!("GossipGraph(from: {:?})", &s.peer_id)
-                            );
-                            let send_future =
-                                self.consensus
-                                    .input
-                                    .send(consensus::graph::InEvent::ApplySync {
-                                        from: s.peer_id,
-                                        sync,
-                                    });
-                            pin_mut!(send_future);
-                            match send_future.poll(cx) {
-                                Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", format!("ApplySync(from: {})", s.peer_id)),
-                                Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
-                                Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will apply received sync. for now fail fast to see this."),
-                            }
-                            Metrics::update_queue_size(
-                                &self.consensus.input,
-                                &mut self.metrics.consensus_queue_size,
-                            );
+            if let Some(s) = self.oneshot_messages.pop_back() {
+                trace!("Got a simple message");
+                match s.event {
+                    SimpleMessage(protocol::Simple::GossipGraph(sync)) => {
+                        channel_log_recv!(
+                            "network.simple",
+                            format!("GossipGraph(from: {:?})", &s.peer_id)
+                        );
+                        let send_future =
+                            self.consensus
+                                .input
+                                .send(consensus::graph::InEvent::ApplySync {
+                                    from: s.peer_id,
+                                    sync,
+                                });
+                        pin_mut!(send_future);
+                        match send_future.poll(cx) {
+                            Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", format!("ApplySync(from: {})", s.peer_id)),
+                            Poll::Ready(Err(_e)) => cant_operate_error_return!("other half of `consensus.input` was closed. cannot operate without this module."),
+                            Poll::Pending => cant_operate_error_return!("`consensus.input` queue is full. continuing will apply received sync. for now fail fast to see this."),
                         }
+                        Metrics::update_queue_size(
+                            &self.consensus.input,
+                            &mut self.metrics.consensus_queue_size,
+                        );
                     }
-                    continue;
                 }
-                None => (),
+                continue;
             }
             break;
         }

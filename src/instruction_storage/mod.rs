@@ -158,27 +158,25 @@ impl InstructionMemory {
                     match in_event {
                         InEvent::FinalizedProgram(program) => {
                             self.notify_finalized(program.identifier().clone(), program.instructions());
-                            if let Err(_) = connection.output.send(
+                            if (connection.output.send(
                                 OutEvent::NextProgram(program)
-                            ).await {
+                            ).await).is_err() {
                                 error!("`connection.output` is closed, shuttung down instruction memory");
                                 return;
                             }
                         },
                         InEvent::ExecutedProgram { peer, program_id } => {
-                            if self.notify_executed(peer, program_id.clone()) {
-                                if let Err(_) = connection.output.send(
+                            if self.notify_executed(peer, program_id.clone()) && (connection.output.send(
                                     OutEvent::FinishedExecution(program_id.clone())
-                                ).await {
-                                    error!("`connection.output` is closed, shuttung down instruction memory");
-                                    return;
-                                }
+                                ).await).is_err() {
+                                error!("`connection.output` is closed, shuttung down instruction memory");
+                                return;
                             }
                             if let Some(metadata) = self.currently_executed.get(&program_id) {
                                 let updated_data_ids = metadata.affected_data_ids.clone();
-                                if let Err(_) = connection.output.send(
+                                if (connection.output.send(
                                     OutEvent::PeerShardsActualized { program_id, peer, updated_data_ids }
-                                ).await {
+                                ).await).is_err() {
                                     error!("`connection.output` is closed, shuttung down instruction memory");
                                     return;
                                 }

@@ -56,14 +56,15 @@ pub async fn handle_request_response_event(
                 request,
                 channel,
             } => {
-                if let Err(_) = request_response_bus
+                if (request_response_bus
                     .output
                     .send(OutEvent::IncomingRequest {
                         request_id,
                         request,
                         channel,
                     })
-                    .await
+                    .await)
+                    .is_err()
                 {
                     error!("other half of `request_response_bus.output` was closed. no reason to operate without main behaviour.");
                     return Err(SendError(()));
@@ -73,13 +74,14 @@ pub async fn handle_request_response_event(
                 request_id,
                 response,
             } => {
-                if let Err(_) = request_response_bus
+                if (request_response_bus
                     .output
                     .send(OutEvent::Response {
                         request_id,
                         response,
                     })
-                    .await
+                    .await)
+                    .is_err()
                 {
                     error!("other half of `request_response_bus.output` was closed. no reason to operate without main behaviour.");
                     return Err(SendError(()));

@@ -194,7 +194,7 @@ pub async fn new(
         // dummy receiver to not close the channel
         join_handles.push(tokio::spawn(async move {
             let mut behaviour_client = behaviour_client;
-            while let Some(_) = behaviour_client.output.recv().await {}
+            while (behaviour_client.output.recv().await).is_some() {}
         }));
     }
 

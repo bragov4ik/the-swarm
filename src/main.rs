@@ -173,7 +173,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         // https://github.com/libp2p/go-libp2p/issues/328
                         let request_id = swarm.behaviour_mut().request_response.send_request(&to, request.clone());
                         let send_result = request_response_server.output.send(request_response::OutEvent::AssignedRequestId { request_id, request }).await;
-                        if let Err(_) = send_result {
+                        if send_result.is_err() {
                             error!("other half of `request_response_server.output` was closed. no reason to operate without main behaviour.");
                             shutdown_token.cancel();
                             break;
@@ -205,8 +205,7 @@ fn configure_logs(
     let mut guard = None;
     #[cfg(feature = "file-log")]
     let file_layer = {
-        let filename =
-            format!("./logs/{:?}-{}.log", chrono::offset::Utc::now(), local_id).to_string();
+        let filename = format!("./logs/{:?}-{}.log", chrono::offset::Utc::now(), local_id);
         let path = std::path::Path::new(&filename);
         let prefix = path.parent().unwrap();
         std::fs::create_dir_all(prefix).unwrap();
@@ -218,17 +217,15 @@ fn configure_logs(
             .with_ansi(false)
             .with_writer(non_blocking);
 
+        #[allow(clippy::let_and_return)]
         file_layer
     };
     #[cfg(feature = "console-log")]
     let console_layer = {
         let mut layer = ConsoleLayer::builder().with_default_env();
-        match console_subscriber_addr {
-            Some(addr) => {
-                let addr: SocketAddr = addr.parse().unwrap();
-                layer = layer.server_addr(addr);
-            }
-            None => (),
+        if let Some(addr) = console_subscriber_addr {
+            let addr: SocketAddr = addr.parse().unwrap();
+            layer = layer.server_addr(addr);
         }
         layer.spawn()
     };
