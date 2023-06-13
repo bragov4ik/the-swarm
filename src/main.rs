@@ -127,7 +127,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         let handle_result = request_response::handle_request_response_event(
                             &mut request_response_server, e
                         ).await;
-                        if let Err(_) = handle_result {
+                        if handle_result.is_err() {
                             error!("Shutting down...");
                             shutdown_token.cancel();
                             break;
@@ -181,7 +181,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     },
                     request_response::InEvent::Respond { request_id, channel, response } => {
                         let send_result = swarm.behaviour_mut().request_response.send_response(channel, response);
-                        if let Err(_) = &send_result {
+                        if send_result.is_err() {
                             warn!("Could not send response to {:?}: {:?}", request_id, send_result);
                         }
                     },

@@ -121,13 +121,13 @@ impl ShardProcessor {
     fn calculate(operation: &Operation<Shard>) -> Shard {
         let array = match operation {
             Operation::Sub(operation) => map_zip(
-                &operation.first.as_inner(),
-                &operation.second.as_inner(),
+                operation.first.as_inner(),
+                operation.second.as_inner(),
                 reed_solomon_erasure::galois_8::add,
             ),
             Operation::Plus(operation) => map_zip(
-                &operation.first.as_inner(),
-                &operation.second.as_inner(),
+                operation.first.as_inner(),
+                operation.second.as_inner(),
                 reed_solomon_erasure::galois_8::add,
             ),
             // inverses in GF(2^8) are the same values, because

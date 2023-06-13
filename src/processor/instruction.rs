@@ -156,9 +156,6 @@ impl<O> UnaryOp<O> {
 
 impl<O> UnaryOp<Option<O>> {
     pub fn transpose(self) -> Option<UnaryOp<O>> {
-        match self.operand {
-            Some(operand) => Some(UnaryOp { operand }),
-            None => None,
-        }
+        self.operand.map(|operand| UnaryOp { operand })
     }
 }

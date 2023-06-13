@@ -437,7 +437,7 @@ impl NetworkBehaviour for Behaviour {
                             let send_future = self.request_response
                                 .input
                                 .send(crate::request_response::InEvent::Respond {
-                                    request_id: request_id,
+                                    request_id,
                                     channel: sender,
                                     response: response.clone(),
                                 });
@@ -474,7 +474,7 @@ impl NetworkBehaviour for Behaviour {
                             let send_future = self.request_response
                                 .input
                                 .send(crate::request_response::InEvent::Respond {
-                                    request_id: request_id,
+                                    request_id,
                                     channel: sender,
                                     response: response.clone(),
                                 });
@@ -760,7 +760,7 @@ impl NetworkBehaviour for Behaviour {
                     consensus::graph::OutEvent::KnownPeersResponse(peers) => {
                         let mut peers = HashSet::<_>::from_iter(peers.into_iter());
                         for p in &self.connected_peers {
-                            peers.insert(p.clone());
+                            peers.insert(*p);
                         }
                         let peers = peers
                             .into_iter()
@@ -823,55 +823,55 @@ impl NetworkBehaviour for Behaviour {
         }
 
         trace!("Checking periodic gossip");
-        if self.consensus.accepts_input() {
-            if let Poll::Ready(_) = self.consensus_gossip_timer.as_mut().poll(cx) {
-                let random_peer = self.get_random_peer();
+        if self.consensus.accepts_input()
+            && self.consensus_gossip_timer.as_mut().poll(cx).is_ready()
+        {
+            let random_peer = self.get_random_peer();
 
-                // Time to send another one
-                self.consensus_gossip_timer.start_next();
-                if let Some(random_peer) = random_peer {
-                    trace!("Before gossip make a standalone event");
-                    let send_future = self
-                        .consensus
-                        .input
-                        .send(consensus::graph::InEvent::CreateStandalone);
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", "CreateStandalone"),
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!(
-                            "other half of `consensus.input` was closed. cannot operate without this module."
-                        ),
-                        Poll::Pending => warn!(
-                            "`consensus.input` queue is full. skipping making a standalone event. \
-                            might lead to higher latency in scheduled tx inclusion."
-                        ),
-                    };
+            // Time to send another one
+            self.consensus_gossip_timer.start_next();
+            if let Some(random_peer) = random_peer {
+                trace!("Before gossip make a standalone event");
+                let send_future = self
+                    .consensus
+                    .input
+                    .send(consensus::graph::InEvent::CreateStandalone);
+                pin_mut!(send_future);
+                match send_future.poll(cx) {
+                    Poll::Ready(Ok(_)) => channel_log_send!("consensus.input", "CreateStandalone"),
+                    Poll::Ready(Err(_e)) => cant_operate_error_return!(
+                        "other half of `consensus.input` was closed. cannot operate without this module."
+                    ),
+                    Poll::Pending => warn!(
+                        "`consensus.input` queue is full. skipping making a standalone event. \
+                        might lead to higher latency in scheduled tx inclusion."
+                    ),
+                };
 
-                    debug!("Chose {:?} for random gossip", random_peer);
-                    let event = consensus::graph::InEvent::GenerateSyncRequest { to: random_peer };
-                    let send_future = self.consensus.input.send(event.clone());
-                    pin_mut!(send_future);
-                    match send_future.poll(cx) {
-                        Poll::Ready(Ok(_)) => {
-                            channel_log_send!("consensus.input", format!("{:?}", event));
-                            self.metrics.sync.record_start();
-                        },
-                        Poll::Ready(Err(_e)) => cant_operate_error_return!(
-                            "other half of `consensus.input` was closed. cannot operate without this module."
-                        ),
-                        Poll::Pending => warn!(
-                            "`consensus.input` queue is full. skipping random gossip. \
-                            it's ok for a few times, but repeated skips are concerning, \
-                            as it is likely to worsen distributed system responsiveness."
-                        ),
-                    }
-                    Metrics::update_queue_size(
-                        &self.consensus.input,
-                        &mut self.metrics.consensus_queue_size,
-                    );
-                } else {
-                    warn!("Time to send gossip but no peers found, idling...");
+                debug!("Chose {:?} for random gossip", random_peer);
+                let event = consensus::graph::InEvent::GenerateSyncRequest { to: random_peer };
+                let send_future = self.consensus.input.send(event.clone());
+                pin_mut!(send_future);
+                match send_future.poll(cx) {
+                    Poll::Ready(Ok(_)) => {
+                        channel_log_send!("consensus.input", format!("{:?}", event));
+                        self.metrics.sync.record_start();
+                    },
+                    Poll::Ready(Err(_e)) => cant_operate_error_return!(
+                        "other half of `consensus.input` was closed. cannot operate without this module."
+                    ),
+                    Poll::Pending => warn!(
+                        "`consensus.input` queue is full. skipping random gossip. \
+                        it's ok for a few times, but repeated skips are concerning, \
+                        as it is likely to worsen distributed system responsiveness."
+                    ),
                 }
+                Metrics::update_queue_size(
+                    &self.consensus.input,
+                    &mut self.metrics.consensus_queue_size,
+                );
+            } else {
+                warn!("Time to send gossip but no peers found, idling...");
             }
         }
 

@@ -1,20 +1,20 @@
 #[macro_export]
 macro_rules! channel_log_send {
     ($chan_name:literal, $msg:expr) => {
-        tracing::event!(target: crate::logging_helpers::Targets::ChannelSend.into_str(), tracing::Level::DEBUG, "Sent to {}: {}", $chan_name, $msg)
+        tracing::event!(target: $crate::logging_helpers::Targets::ChannelSend.into_str(), tracing::Level::DEBUG, "Sent to {}: {}", $chan_name, $msg)
     };
     ($chan_name:literal, $lvl:expr, $msg:expr) => {
-        tracing::event!(target: crate::logging_helpers::Targets::ChannelSend.into_str(), $lvl, "Sent to {}: {}", $chan_name, $msg)
+        tracing::event!(target: $crate::logging_helpers::Targets::ChannelSend.into_str(), $lvl, "Sent to {}: {}", $chan_name, $msg)
     };
 }
 
 #[macro_export]
 macro_rules! channel_log_recv {
     ($chan_name:literal, $msg:expr) => {
-        tracing::event!(target: crate::logging_helpers::Targets::ChannelRecv.into_str(), tracing::Level::DEBUG, "Received from {}: {}", $chan_name, $msg)
+        tracing::event!(target: $crate::logging_helpers::Targets::ChannelRecv.into_str(), tracing::Level::DEBUG, "Received from {}: {}", $chan_name, $msg)
     };
     ($chan_name:literal, $lvl:expr, $msg:expr) => {
-        tracing::event!(target: crate::logging_helpers::Targets::ChannelRecv.into_str(), $lvl, "Received from {}: {}", $chan_name, $msg)
+        tracing::event!(target: $crate::logging_helpers::Targets::ChannelRecv.into_str(), $lvl, "Received from {}: {}", $chan_name, $msg)
     };
 }
 

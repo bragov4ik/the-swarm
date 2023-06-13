@@ -120,15 +120,15 @@ impl std::ops::BitXor<&Hash> for Hash {
 
 impl Hash {
     pub fn into_array(self) -> [u8; 64] {
-        return self.inner;
+        self.inner
     }
 
     pub fn as_ref(&self) -> &[u8; 64] {
-        return &self.inner;
+        &self.inner
     }
 
     pub const fn from_array(inner: [u8; 64]) -> Self {
-        return Hash { inner };
+        Hash { inner }
     }
 }
 
@@ -138,8 +138,8 @@ impl From<rust_hashgraph::algorithm::event::Hash> for Hash {
     }
 }
 
-impl Into<rust_hashgraph::algorithm::event::Hash> for Hash {
-    fn into(self) -> rust_hashgraph::algorithm::event::Hash {
-        rust_hashgraph::algorithm::event::Hash::from_array(self.into_array())
+impl From<Hash> for rust_hashgraph::algorithm::event::Hash {
+    fn from(val: Hash) -> Self {
+        rust_hashgraph::algorithm::event::Hash::from_array(val.into_array())
     }
 }

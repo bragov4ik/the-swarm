@@ -100,5 +100,5 @@ pub async fn handle_request_response_event(
             trace!("Sent request {} to {} successfully", request_id, peer)
         }
     }
-    return Ok(());
+    Ok(())
 }

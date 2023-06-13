@@ -42,8 +42,7 @@ impl DataEncoding<Data, Sid, Shard, MockEncodingSettings, Error> for MockEncodin
         shards.sort_by_key(|(i, _)| i.0);
         let kek: Vec<_> = shards
             .into_iter()
-            .map(|(_, shard)| shard.0.into_iter())
-            .flatten()
+            .flat_map(|(_, shard)| shard.0.into_iter())
             .collect();
         let arr = kek.try_into().map_err(|_| Error::NotEnoughShards)?;
         Ok(Data(arr))

@@ -213,8 +213,7 @@ where
         let other_parent = self
             .inner
             .peer_latest_event(&from)
-            .clone()
-            .ok_or_else(|| ApplySyncError::UnknownPeer(from.clone()))?;
+            .ok_or_else(|| ApplySyncError::UnknownPeer(from))?;
         self.inner.create_event(payload, other_parent.clone())?;
         self.included_transaction_buffer.clear();
         Ok(())
@@ -277,7 +276,7 @@ where
                 // no txs left in previous event, getting a new one
                 match get_next_event(this) {
                     Some(event) => {
-                        let author = event.author().clone();
+                        let author = *event.author();
                         let mut txs: VecDeque<_> = event.payload().transactions.clone().into();
                         let next_tx = txs.pop_front();
                         tx_buffer.0 = author;

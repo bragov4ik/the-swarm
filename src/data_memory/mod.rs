@@ -191,7 +191,7 @@ impl UninitializedDataMemory {
                     .try_into()
                     .unwrap(),
             )
-            .map(|i| Sid(i))
+            .map(Sid)
             .collect();
         let expected_ids: HashSet<_> = expected_ids_owned.iter().collect();
         shard_ids == expected_ids
@@ -325,8 +325,7 @@ impl InitializedDataMemory {
     fn remove_shard(&mut self, full_shard_id: &FullShardId) -> Option<Shard> {
         self.local_storage
             .get_mut(&full_shard_id.0)
-            .map(|shards| shards.remove(&full_shard_id.1))
-            .flatten()
+            .and_then(|shards| shards.remove(&full_shard_id.1))
     }
 
     /// Notify the data memory about observed location of some data shard.
@@ -411,7 +410,7 @@ impl InitializedDataMemory {
             error!("`connection.output` is closed, shuttung down data memory");
             return HandleResult::Abort;
         }
-        return HandleResult::Ok;
+        HandleResult::Ok
     }
 
     async fn handle_assigned_response(
@@ -429,8 +428,9 @@ impl InitializedDataMemory {
             debug!(target: Targets::DataRecollection.into_str(), "received shard was likely already assembled, skipping");
             return HandleResult::Ok;
         };
-        if !received_shards.contains_key(&full_shard_id.1) {
-            received_shards.insert(full_shard_id.1, shard);
+        if let std::collections::hash_map::Entry::Vacant(e) = received_shards.entry(full_shard_id.1)
+        {
+            e.insert(shard);
             let sufficient_shards_n = self
                 .encoding
                 .settings()
@@ -468,7 +468,7 @@ impl InitializedDataMemory {
             // not sure when it's possible
             warn!("received shard that is already present, weird");
         }
-        return HandleResult::Ok;
+        HandleResult::Ok
     }
 }
 
@@ -679,7 +679,7 @@ impl InitializedDataMemory {
                                     trace!(target: Targets::DataRecollection.into_str(), "Requesting shard {:?} from peer {:?}", shard_id, owner);
                                     if let Err(_) = connection.output.send(OutEvent::AssignedRequest(
                                         (data_id.clone(), shard_id),
-                                        owner.clone()
+                                        owner
                                     )).await {
                                         error!("`connection.output` is closed, shuttung down data memory");
                                         return;
@@ -720,7 +720,6 @@ impl InitializedDataMemory {
                     let shards: Vec<_> = self.local_storage.get(&data_id)
                         .map(|mapping| mapping
                             .values()
-                            .into_iter()
                             .cloned()
                             .collect())
                         .unwrap_or_default();
@@ -775,8 +774,7 @@ impl DistributedDataMemory {
         tokio::select! {
             _ = self.run_memory(connection) => { }
             _ = shutdown.cancelled() => {
-                info!("received cancel signal, shutting down data memory");
-                return;
+                info!("received cancel signal, shutting down data memory");;
             }
         }
     }

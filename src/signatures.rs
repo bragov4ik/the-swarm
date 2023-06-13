@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, PartialEq, Eq, std::hash::Hash, Debug, Clone)]
 pub struct EncodedEd25519Pubkey([u8; 32]);
 
-impl Into<libp2p::identity::ed25519::PublicKey> for EncodedEd25519Pubkey {
-    fn into(self) -> libp2p::identity::ed25519::PublicKey {
-        libp2p::identity::ed25519::PublicKey::decode(&self.0).expect("signature parse failure")
+impl From<EncodedEd25519Pubkey> for libp2p::identity::ed25519::PublicKey {
+    fn from(val: EncodedEd25519Pubkey) -> Self {
+        libp2p::identity::ed25519::PublicKey::decode(&val.0).expect("signature parse failure")
     }
 }
 
@@ -17,12 +17,12 @@ impl From<libp2p::identity::ed25519::PublicKey> for EncodedEd25519Pubkey {
     }
 }
 
-impl Into<libp2p::identity::PublicKey> for EncodedEd25519Pubkey {
-    fn into(self) -> libp2p::identity::PublicKey {
+impl From<EncodedEd25519Pubkey> for libp2p::identity::PublicKey {
+    fn from(val: EncodedEd25519Pubkey) -> Self {
         // TODO: use `From<ed25519::PublicKey> for PublicKey` when released
         // https://github.com/libp2p/rust-libp2p/pull/3866
         #[allow(deprecated)]
-        libp2p::identity::PublicKey::Ed25519(self.into())
+        libp2p::identity::PublicKey::Ed25519(val.into())
     }
 }
 

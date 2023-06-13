@@ -130,7 +130,7 @@ pub fn run_repl(
     let mut repl = Repl::builder()
         .description("Example REPL")
         .prompt("=> ")
-        .text_width(60 as usize)
+        .text_width(60_usize)
         .with_filename_completion(true)
         .add(
             "init",
