@@ -41,26 +41,33 @@ const CHANNEL_BUFFER_LIMIT: usize = 100;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
+    /// Expect and accept user input.
+    /// Without it only acts as a "passive" node
     #[clap(short, long)]
     interactive: bool,
 
+    /// If true, only generates input program and data
+    /// at predefined location. Doesn't launch a node.
     #[clap(long)]
     generate_input: bool,
 
     #[clap(long, default_value = "/ip4/0.0.0.0/tcp/0")]
     listen_address: String,
 
+    /// Address to connect on launch to. Optional.
     #[clap(short, long)]
     dial_address: Option<String>,
 
+    /// Number of parity shards in the encoding.
     #[clap(long, default_value_t = 1)]
     parity_shards: u64,
 
+    /// Address to launch console_subscriber/
     #[cfg(feature = "console-log")]
     #[clap(short, long)]
     console_subscriber_addr: Option<String>,
 
-    /// Seed to generate key
+    /// Seed to generate key. Optional.
     #[clap(long)]
     key_seed: Option<u8>,
 }
@@ -89,6 +96,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .await
             .unwrap();
 
+    // doesn't seem to work well, useless info.
+    // probably issue with libp2p not supporting this logger.
     #[cfg(feature = "console-log")]
     let console_subscriber_addr = args.console_subscriber_addr;
     #[cfg(not(feature = "console-log"))]

@@ -27,4 +27,4 @@ USER nonroot
 
 ENV RUST_LOG=info
 
-ENTRYPOINT [ "./app_rust" ]
+ENTRYPOINT [ "./app_rust", "--", "-i" ]
