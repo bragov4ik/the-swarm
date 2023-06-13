@@ -6,13 +6,13 @@
 //! of distribution, and tracking location of other shards in the
 //! network.
 //!
-//! Assigned data is handled via commonly-named functions [`DataMemory::get_shard()`],
-//! [`DataMemory::store_shard()`], and [`DataMemory::remove_shard()`].
+//! Assigned data is handled via commonly-named functions [`InitializedDataMemory::get_shard()`],
+//! [`InitializedDataMemory::store_shard()`], and [`InitializedDataMemory::remove_shard()`].
 //!
-//! The functions responsible for temporal data are [`DataMemory::prepare_to_serve_shards()`],
-//! [`DataMemory::serve_shard()`], and (partly) [`DataMemory::observe_new_location()`].
+//! The functions responsible for temporal data are [`InitializedDataMemory::prepare_to_serve_shards()`],
+//! [`InitializedDataMemory::serve_shard()`], and (partly) [`InitializedDataMemory::observe_new_location()`].
 //!
-//! [`DataMemory::observe_new_location()`] mainly tracks locations of other data shards
+//! [`InitializedDataMemory::observe_new_location()`] mainly tracks locations of other data shards
 //! but also helps to remove unnecessary stored temporal data.
 
 use std::collections::{hash_map, HashMap, HashSet};
@@ -287,7 +287,7 @@ impl UninitializedDataMemory {
 
 /// Async data memory/data manager. Intended to communicate
 /// with behaviour through corresponding [`ModuleChannelServer`] (the
-/// behaviour thus uses [`ModuleChannelClient`]).
+/// behaviour thus uses [`ModuleChannelClient`](crate::module::ModuleChannelServer)).
 ///
 /// Tracks locations of data shards, stores shards assigned to this peer,
 /// and manages initial distribution (serving) with rebuilding of data.

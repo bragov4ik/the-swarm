@@ -45,7 +45,7 @@ pub enum InEvent {
 
 /// Async data memory/data manager. Intended to communicate
 /// with behaviour through corresponding [`ModuleChannelServer`] (the
-/// behaviour thus uses [`ModuleChannelClient`]).
+/// behaviour thus uses [`ModuleChannelClient`](crate::module::ModuleChannelServer)).
 ///
 /// Stores scheduled programs and tracks their execution
 ///

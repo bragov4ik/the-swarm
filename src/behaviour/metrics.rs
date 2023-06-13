@@ -86,7 +86,7 @@ impl PeriodicEvent {
 
 /// A gauge is a metric that represents a single numerical
 /// value that can arbitrarily go up and down.
-/// (source: https://prometheus.io/docs/concepts/metric_types/#gauge)
+/// (source: <https://prometheus.io/docs/concepts/metric_types/#gauge>)
 #[derive(Debug, Clone)]
 pub struct Gauge<V> {
     values: Vec<(Instant, V)>,
