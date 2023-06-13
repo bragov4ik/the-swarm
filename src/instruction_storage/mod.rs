@@ -158,30 +158,39 @@ impl InstructionMemory {
                     match in_event {
                         InEvent::FinalizedProgram(program) => {
                             self.notify_finalized(program.identifier().clone(), program.instructions());
-                            if (connection.output.send(
-                                OutEvent::NextProgram(program)
-                            ).await).is_err() {
+                            if (connection.output.send(OutEvent::NextProgram(program)).await).is_err() {
                                 error!("`connection.output` is closed, shuttung down instruction memory");
                                 return;
                             }
-                        },
+                        }
                         InEvent::ExecutedProgram { peer, program_id } => {
-                            if self.notify_executed(peer, program_id.clone()) && (connection.output.send(
-                                    OutEvent::FinishedExecution(program_id.clone())
-                                ).await).is_err() {
+                            if self.notify_executed(peer, program_id.clone())
+                                && (connection
+                                    .output
+                                    .send(OutEvent::FinishedExecution(program_id.clone()))
+                                    .await)
+                                    .is_err()
+                            {
                                 error!("`connection.output` is closed, shuttung down instruction memory");
                                 return;
                             }
                             if let Some(metadata) = self.currently_executed.get(&program_id) {
                                 let updated_data_ids = metadata.affected_data_ids.clone();
-                                if (connection.output.send(
-                                    OutEvent::PeerShardsActualized { program_id, peer, updated_data_ids }
-                                ).await).is_err() {
+                                if (connection
+                                    .output
+                                    .send(OutEvent::PeerShardsActualized {
+                                        program_id,
+                                        peer,
+                                        updated_data_ids,
+                                    })
+                                    .await)
+                                    .is_err()
+                                {
                                     error!("`connection.output` is closed, shuttung down instruction memory");
                                     return;
                                 }
                             }
-                        },
+                        }
                     }
                 }
                 _ = connection.shutdown.cancelled() => {

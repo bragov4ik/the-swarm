@@ -215,7 +215,6 @@ impl UninitializedDataMemory {
         connection: &mut ModuleChannelServer<Module>,
     ) -> Option<InitializedDataMemory> {
         loop {
-            // todo: format the code semi-automatically (for each `select!`)
             tokio::select! {
                 in_event = connection.input.recv() => {
                     let Some(in_event) = in_event else {
@@ -227,9 +226,12 @@ impl UninitializedDataMemory {
                             debug!(target: Targets::StorageInitialization.into_str(), "Initializing storage...");
                             let distribution = distribution.into_iter().collect();
                             if !self.verify_distribution(&distribution) {
-                                warn!("received distribution doesn't match expected pattern; \
+                                warn!(
+                                    "received distribution doesn't match expected pattern; \
                                 expected to have a peer for each shard id from 0 to <total shard number>; \
-                                got: {:?}", distribution);
+                                got: {:?}",
+                                    distribution
+                                );
                                 continue;
                             }
                             info!("storage initialized, ready");
@@ -238,8 +240,8 @@ impl UninitializedDataMemory {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return None;
                             }
-                            return Some(self.initialize(distribution))
-                        },
+                            return Some(self.initialize(distribution));
+                        }
                         InEvent::StoreConfirmed {
                             full_shard_id: _,
                             location: _,
@@ -255,15 +257,20 @@ impl UninitializedDataMemory {
                         | InEvent::ListDistributed
                         | InEvent::RecollectRequest(_)
                         | InEvent::AssignedResponse(_, _)
-                        | InEvent::PeerShardsActualized { peer: _, updated_data_ids: _ } => warn!("have not initialized storage, ignoring request {:?}", in_event),
+                        | InEvent::PeerShardsActualized {
+                            peer: _,
+                            updated_data_ids: _,
+                        } => warn!(
+                            "have not initialized storage, ignoring request {:?}",
+                            in_event
+                        ),
                     }
-
                 }
                 data_request = self.bus.reads.recv() => {
                     let Some(_) = data_request else {
-                        error!("memory bus is closed, shuttung down data memory");
-                        return None;
-                    };
+                    error!("memory bus is closed, shuttung down data memory");
+                    return None;
+                };
                     warn!("have not initialized storage, ignoring read request from memory bus");
                 }
                 write_request = self.bus.writes.recv() => {
@@ -487,7 +494,7 @@ impl InitializedDataMemory {
                     match in_event {
                         InEvent::Initialize { distribution: _ } => {
                             warn!("received `InitializeStorage` transaction but storage was already initialized. ignoring");
-                        },
+                        }
                         // initial distribution
                         InEvent::PrepareServiceRequest { data_id, data } => {
                             debug!(
@@ -496,7 +503,7 @@ impl InitializedDataMemory {
                             );
                             let shards = self.encoding.encode(data).expect(
                                 "Encoding settings are likely incorrect, \
-                                all problems should've been caught at type-level"
+                                all problems should've been caught at type-level",
                             );
                             debug!(
                                 target: Targets::DataDistribution.into_str(),
@@ -507,15 +514,16 @@ impl InitializedDataMemory {
                                 target: Targets::DataDistribution.into_str(),
                                 "Prepared to serve shards of {:?}", data_id
                             );
-                            if connection.output.send(
-                                    OutEvent::PreparedServiceResponse(data_id)
-                                ).await
+                            if connection
+                                .output
+                                .send(OutEvent::PreparedServiceResponse(data_id))
+                                .await
                                 .is_err()
                             {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return;
                             }
-                        },
+                        }
                         InEvent::StorageRequestTx(data_id, author) => {
                             debug!(
                                 target: Targets::DataDistribution.into_str(),
@@ -530,45 +538,64 @@ impl InitializedDataMemory {
                                 let full_shard_id = (data_id, assigned_sid.clone());
                                 let shard = self.serve_shard(&full_shard_id);
                                 // imitate incoming `ServeShardResponse`
-                                match self.handle_serve_shard_response(full_shard_id, shard, connection).await {
+                                match self
+                                    .handle_serve_shard_response(full_shard_id, shard, connection)
+                                    .await
+                                {
                                     HandleResult::Ok => (),
                                     HandleResult::Abort => {
                                         connection.shutdown.cancel();
-                                        return
-                                    },
+                                        return;
+                                    }
                                 }
-                            }
-                            else {
+                            } else {
                                 debug!(
                                     target: Targets::DataDistribution.into_str(),
                                     "Requesting shard {:?} for {:?}", assigned_sid, data_id
                                 );
-                                if (connection.output.send(
-                                    OutEvent::ServeShardRequest((data_id, assigned_sid.clone()), author)
-                                ).await).is_err() {
+                                if (connection
+                                    .output
+                                    .send(OutEvent::ServeShardRequest(
+                                        (data_id, assigned_sid.clone()),
+                                        author,
+                                    ))
+                                    .await)
+                                    .is_err()
+                                {
                                     error!("`connection.output` is closed, shuttung down data memory");
                                     return;
                                 }
                             }
-                        },
+                        }
                         InEvent::ServeShardRequest(full_shard_id) => {
                             let shard = self.serve_shard(&full_shard_id);
-                            if (connection.output.send(OutEvent::ServeShardResponse(full_shard_id, shard)).await).is_err() {
+                            if (connection
+                                .output
+                                .send(OutEvent::ServeShardResponse(full_shard_id, shard))
+                                .await)
+                                .is_err()
+                            {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return;
                             }
-                        },
+                        }
                         // assigned data
                         InEvent::ServeShardResponse(full_shard_id, shard) => {
-                            match self.handle_serve_shard_response(full_shard_id, shard, connection).await {
+                            match self
+                                .handle_serve_shard_response(full_shard_id, shard, connection)
+                                .await
+                            {
                                 HandleResult::Ok => (),
                                 HandleResult::Abort => {
                                     connection.shutdown.cancel();
-                                    return
-                                },
+                                    return;
+                                }
                             }
-                        },
-                        InEvent::StoreConfirmed { full_shard_id, location } => {
+                        }
+                        InEvent::StoreConfirmed {
+                            full_shard_id,
+                            location,
+                        } => {
                             debug!(
                                 target: Targets::DataDistribution.into_str(),
                                 "Observed shard {:?} location: {:?}", full_shard_id, location
@@ -578,8 +605,18 @@ impl InitializedDataMemory {
                                 warn!("bug in tracking data locations, new locations are not registered for some reason");
                                 continue;
                             };
-                            let sufficient_shards: usize = self.encoding.settings().data_shards_sufficient.try_into().unwrap();
-                            let total_shards: usize = self.encoding.settings().data_shards_total.try_into().unwrap();
+                            let sufficient_shards: usize = self
+                                .encoding
+                                .settings()
+                                .data_shards_sufficient
+                                .try_into()
+                                .unwrap();
+                            let total_shards: usize = self
+                                .encoding
+                                .settings()
+                                .data_shards_total
+                                .try_into()
+                                .unwrap();
                             debug!(
                                 target: Targets::DataDistribution.into_str(),
                                 "Checking if enough shards were distributed (threshold = {}/{}, have {})", sufficient_shards, total_shards, this_data_locations.len()
@@ -589,9 +626,12 @@ impl InitializedDataMemory {
                                     target: Targets::DataDistribution.into_str(),
                                     "Enough shards were distributed, reporting to the user as a sufficient distribution"
                                 );
-                                if (connection.output.send(
-                                    OutEvent::DistributionSufficient(full_shard_id.0.clone())
-                                ).await).is_err() {
+                                if (connection
+                                    .output
+                                    .send(OutEvent::DistributionSufficient(full_shard_id.0.clone()))
+                                    .await)
+                                    .is_err()
+                                {
                                     error!("`connection.output` is closed, shuttung down data memory");
                                     return;
                                 }
@@ -602,28 +642,45 @@ impl InitializedDataMemory {
                                     "All shards were distributed, reporting to the user as a full distribution"
                                 );
                                 self.to_distribute.remove(&full_shard_id.0);
-                                if (connection.output.send(
-                                    OutEvent::DistributionFull(full_shard_id.0)
-                                ).await).is_err() {
+                                if (connection
+                                    .output
+                                    .send(OutEvent::DistributionFull(full_shard_id.0))
+                                    .await)
+                                    .is_err()
+                                {
                                     error!("`connection.output` is closed, shuttung down data memory");
                                     return;
                                 }
                             }
-                        },
+                        }
                         InEvent::AssignedRequest(full_shard_id) => {
                             let shard = self.get_shard(&full_shard_id);
-                            if (connection.output.send(OutEvent::AssignedResponse(full_shard_id, shard.cloned())).await).is_err() {
+                            if (connection
+                                .output
+                                .send(OutEvent::AssignedResponse(full_shard_id, shard.cloned()))
+                                .await)
+                                .is_err()
+                            {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return;
                             }
-                        },
+                        }
                         InEvent::ListDistributed => {
                             let sufficient_shards = self.encoding.settings().data_shards_sufficient;
-                            let distributed = self.data_known_locations.iter()
-                                .filter(|(_, locations)| locations.len() >= sufficient_shards.try_into().unwrap())
+                            let distributed = self
+                                .data_known_locations
+                                .iter()
+                                .filter(|(_, locations)| {
+                                    locations.len() >= sufficient_shards.try_into().unwrap()
+                                })
                                 .map(|(a, b)| (a.clone(), b.clone()))
                                 .collect();
-                            if (connection.output.send(OutEvent::ListDistributed(distributed)).await).is_err() {
+                            if (connection
+                                .output
+                                .send(OutEvent::ListDistributed(distributed))
+                                .await)
+                                .is_err()
+                            {
                                 error!("`connection.output` is closed, shuttung down data memory");
                                 return;
                             }
@@ -641,15 +698,22 @@ impl InitializedDataMemory {
                                 continue;
                             };
                             trace!(target: Targets::DataRecollection.into_str(), "We know data {:?} distribution: {:?}", data_id, known_locations);
-                            let sufficient_shards_n = self.encoding.settings()
+                            let sufficient_shards_n = self
+                                .encoding
+                                .settings()
                                 .data_shards_sufficient
                                 .try_into()
                                 .expect("# of shards sufficient is too large");
                             if known_locations.len() < sufficient_shards_n {
                                 debug!(target: Targets::DataRecollection.into_str(), "We do not know enough locations of data {:?}: we track {}/{} sufficient shards", data_id, known_locations.len(), sufficient_shards_n);
-                                if (connection.output.send(
-                                    OutEvent::RecollectResponse(Err(RecollectionError::NotEnoughShards))
-                                ).await).is_err() {
+                                if (connection
+                                    .output
+                                    .send(OutEvent::RecollectResponse(Err(
+                                        RecollectionError::NotEnoughShards,
+                                    )))
+                                    .await)
+                                    .is_err()
+                                {
                                     error!("`connection.output` is closed, shuttung down data memory");
                                     return;
                                 }
@@ -660,10 +724,10 @@ impl InitializedDataMemory {
                                 hash_map::Entry::Occupied(_) => {
                                     debug!(target: Targets::DataRecollection.into_str(), "Data {:?} is already in process of recollection", data_id);
                                     continue;
-                                },
+                                }
                                 hash_map::Entry::Vacant(v) => {
                                     v.insert(HashMap::new());
-                                },
+                                }
                             }
                             for (shard_id, owner) in known_locations.clone() {
                                 if owner == self.local_id {
@@ -671,46 +735,56 @@ impl InitializedDataMemory {
                                     let full_shard_id = (data_id.clone(), shard_id);
                                     let shard = self.get_shard(&full_shard_id).cloned();
                                     // imitate incoming `ServeShardResponse`
-                                    match self.handle_assigned_response(full_shard_id, shard, connection).await {
+                                    match self
+                                        .handle_assigned_response(full_shard_id, shard, connection)
+                                        .await
+                                    {
                                         HandleResult::Ok => (),
                                         HandleResult::Abort => {
                                             connection.shutdown.cancel();
-                                            return
-                                        },
+                                            return;
+                                        }
                                     }
-                                }
-                                else {
+                                } else {
                                     trace!(target: Targets::DataRecollection.into_str(), "Requesting shard {:?} from peer {:?}", shard_id, owner);
-                                    if (connection.output.send(OutEvent::AssignedRequest(
-                                        (data_id.clone(), shard_id),
-                                        owner
-                                    )).await).is_err() {
+                                    if (connection
+                                        .output
+                                        .send(OutEvent::AssignedRequest(
+                                            (data_id.clone(), shard_id),
+                                            owner,
+                                        ))
+                                        .await)
+                                        .is_err()
+                                    {
                                         error!("`connection.output` is closed, shuttung down data memory");
                                         return;
                                     }
                                 }
                             }
-                        },
+                        }
                         InEvent::AssignedResponse(full_shard_id, shard) => {
-                            match self.handle_assigned_response(full_shard_id, shard, connection).await {
+                            match self
+                                .handle_assigned_response(full_shard_id, shard, connection)
+                                .await
+                            {
                                 HandleResult::Ok => (),
                                 HandleResult::Abort => {
                                     connection.shutdown.cancel();
-                                    return
-                                },
+                                    return;
+                                }
                             }
-                        },
-                        InEvent::PeerShardsActualized { peer, updated_data_ids } => {
+                        }
+                        InEvent::PeerShardsActualized {
+                            peer,
+                            updated_data_ids,
+                        } => {
                             let Some(expected_shard_id) = self.distribution.get(&peer) else {
                                 warn!("Received program execution notification but the peer \
                                 is not assigned any shards. It shouldn't've send it.");
                                 return;
                             };
                             for data_id in updated_data_ids {
-                                let shards = self
-                                    .data_known_locations
-                                    .entry(data_id)
-                                    .or_default();
+                                let shards = self.data_known_locations.entry(data_id).or_default();
                                 shards.insert(expected_shard_id.clone(), peer);
                             }
                         }
@@ -721,15 +795,17 @@ impl InitializedDataMemory {
                         error!("memory bus is closed, shuttung down data memory");
                         return;
                     };
-                    let shards: Vec<_> = self.local_storage.get(&data_id)
-                        .map(|mapping| mapping
-                            .values()
-                            .cloned()
-                            .collect())
+                    let shards: Vec<_> = self
+                        .local_storage
+                        .get(&data_id)
+                        .map(|mapping| mapping.values().cloned().collect())
                         .unwrap_or_default();
                     if let Err(e) = response_handle.send(shards.get(0).cloned()) {
-                        warn!("response handle for memory bus request is closed, shouldn't happen \
-                            but let's try to continue operation; {:?}", e);
+                        warn!(
+                            "response handle for memory bus request is closed, shouldn't happen \
+                            but let's try to continue operation; {:?}",
+                            e
+                        );
                     }
                 }
                 write_request = self.bus.writes.recv() => {
@@ -776,7 +852,7 @@ impl DistributedDataMemory {
     pub async fn run(self, connection: ModuleChannelServer<Module>) {
         let shutdown = connection.shutdown.clone();
         tokio::select! {
-            _ = self.run_memory(connection) => { }
+            _ = self.run_memory(connection) => {}
             _ = shutdown.cancelled() => {
                 info!("received cancel signal, shutting down data memory");
             }

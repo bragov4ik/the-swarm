@@ -104,7 +104,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         info!("Dialed {}", addr)
     }
 
-    // todo: send sigterm
     loop {
         tokio::select! {
             event = swarm.select_next_some() => {
@@ -112,41 +111,51 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                         for (peer, address) in list {
                             swarm.behaviour_mut().main.inject_peer_discovered(peer);
-                            swarm.behaviour_mut().request_response.add_address(&peer, address);
+                            swarm
+                                .behaviour_mut()
+                                .request_response
+                                .add_address(&peer, address);
                         }
                     }
                     SwarmEvent::Behaviour(CombinedBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
                         for (peer, address) in list {
                             if !swarm.behaviour_mut().mdns.has_node(&peer) {
                                 swarm.behaviour_mut().main.inject_peer_expired(&peer);
-                                swarm.behaviour_mut().request_response.remove_address(&peer, &address);
+                                swarm
+                                    .behaviour_mut()
+                                    .request_response
+                                    .remove_address(&peer, &address);
                             }
                         }
                     }
                     SwarmEvent::Behaviour(CombinedBehaviourEvent::RequestResponse(e)) => {
-                        let handle_result = request_response::handle_request_response_event(
-                            &mut request_response_server, e
-                        ).await;
+                        let handle_result =
+                            request_response::handle_request_response_event(&mut request_response_server, e)
+                                .await;
                         if handle_result.is_err() {
                             error!("Shutting down...");
                             shutdown_token.cancel();
                             break;
                         }
-                    },
-                    SwarmEvent::Behaviour(CombinedBehaviourEvent::Main(Err(behaviour::Error::CancelSignal))) => {
+                    }
+                    SwarmEvent::Behaviour(CombinedBehaviourEvent::Main(Err(
+                        behaviour::Error::CancelSignal,
+                    ))) => {
                         info!("{}", behaviour::Error::CancelSignal);
                         shutdown_token.cancel();
                         break;
-                    },
-                    SwarmEvent::Behaviour(CombinedBehaviourEvent::Main(Err(behaviour::Error::UnableToOperate))) => {
+                    }
+                    SwarmEvent::Behaviour(CombinedBehaviourEvent::Main(Err(
+                        behaviour::Error::UnableToOperate,
+                    ))) => {
                         error!("Shutting down...");
                         shutdown_token.cancel();
                         break;
-                    },
+                    }
                     SwarmEvent::Behaviour(event) => info!("{:?}", event),
                     SwarmEvent::NewListenAddr { address, .. } => {
                         let local_peer_id = *swarm.local_peer_id();
-                        eprintln!(
+                        println!(
                             "Local node is listening on {:?}",
                             address.with(libp2p::multiaddr::Protocol::P2p(local_peer_id.into()))
                         );
@@ -171,20 +180,39 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     request_response::InEvent::MakeRequest { request, to } => {
                         // todo: check if `to` is local id, reroute manually if needed
                         // https://github.com/libp2p/go-libp2p/issues/328
-                        let request_id = swarm.behaviour_mut().request_response.send_request(&to, request.clone());
-                        let send_result = request_response_server.output.send(request_response::OutEvent::AssignedRequestId { request_id, request }).await;
+                        let request_id = swarm
+                            .behaviour_mut()
+                            .request_response
+                            .send_request(&to, request.clone());
+                        let send_result = request_response_server
+                            .output
+                            .send(request_response::OutEvent::AssignedRequestId {
+                                request_id,
+                                request,
+                            })
+                            .await;
                         if send_result.is_err() {
                             error!("other half of `request_response_server.output` was closed. no reason to operate without main behaviour.");
                             shutdown_token.cancel();
                             break;
                         }
-                    },
-                    request_response::InEvent::Respond { request_id, channel, response } => {
-                        let send_result = swarm.behaviour_mut().request_response.send_response(channel, response);
+                    }
+                    request_response::InEvent::Respond {
+                        request_id,
+                        channel,
+                        response,
+                    } => {
+                        let send_result = swarm
+                            .behaviour_mut()
+                            .request_response
+                            .send_response(channel, response);
                         if send_result.is_err() {
-                            warn!("Could not send response to {:?}: {:?}", request_id, send_result);
+                            warn!(
+                                "Could not send response to {:?}: {:?}",
+                                request_id, send_result
+                            );
                         }
-                    },
+                    }
                 }
             }
         }

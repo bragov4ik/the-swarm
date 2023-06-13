@@ -316,14 +316,20 @@ impl ShardProcessor {
                             connection.set_state(ModuleState::Executing);
                             let (instructions, program_id) = program.into_parts();
                             let results = self.execute(instructions, program_id.clone()).await;
-                            if (connection.output.send(
-                                OutEvent::FinishedExecution { program_id, results }
-                            ).await).is_err() {
+                            if (connection
+                                .output
+                                .send(OutEvent::FinishedExecution {
+                                    program_id,
+                                    results,
+                                })
+                                .await)
+                                .is_err()
+                            {
                                 error!("`connection.output` is closed, shuttung down processor");
                                 return;
                             }
                             connection.set_state(ModuleState::Ready);
-                        },
+                        }
                     }
                 }
                 _ = connection.shutdown.cancelled() => {

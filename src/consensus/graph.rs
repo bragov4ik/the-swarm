@@ -365,8 +365,16 @@ where
                         return;
                     };
                     let out_event = match next_tx {
-                        NextTx::Recognized((from, tx, event_hash)) => OutEvent::RecognizedTransaction { from, tx, event_hash },
-                        NextTx::Finalized((from, tx, event_hash)) => OutEvent::FinalizedTransaction { from, tx, event_hash },
+                        NextTx::Recognized((from, tx, event_hash)) => OutEvent::RecognizedTransaction {
+                            from,
+                            tx,
+                            event_hash,
+                        },
+                        NextTx::Finalized((from, tx, event_hash)) => OutEvent::FinalizedTransaction {
+                            from,
+                            tx,
+                            event_hash,
+                        },
                     };
                     if (connection.output.send(out_event).await).is_err() {
                         info!("`connection.output` is closed, shuttung down consensus");
@@ -386,23 +394,36 @@ where
                             let sync = match self.inner.generate_sync_for(&to) {
                                 Ok(s) => s,
                                 Err(e) => {
-                                    error!("Graph state inconsistent or bug in generation of sync: {:?}", e);
+                                    error!(
+                                        "Graph state inconsistent or bug in generation of sync: {:?}",
+                                        e
+                                    );
                                     // todo: maybe store state to debug???
                                     return;
-                                },
+                                }
                             };
                             trace!("Set consensus state to ready");
                             connection.set_state(ModuleState::Ready);
                             trace!("Generated sync successfully");
                             // todo: maybe use `try_send` or `reserve` on each send
-                            if (connection.output.send(OutEvent::GenerateSyncResponse { to, sync }).await).is_err() {
+                            if (connection
+                                .output
+                                .send(OutEvent::GenerateSyncResponse { to, sync })
+                                .await)
+                                .is_err()
+                            {
                                 error!("`connection.output` is closed, shuttung down consensus");
                                 return;
                             }
-                        },
+                        }
                         InEvent::KnownPeersRequest => {
                             trace!("Returning list of known peers");
-                            if (connection.output.send(OutEvent::KnownPeersResponse(self.inner.peers())).await).is_err() {
+                            if (connection
+                                .output
+                                .send(OutEvent::KnownPeersResponse(self.inner.peers()))
+                                .await)
+                                .is_err()
+                            {
                                 error!("`connection.output` is closed, shuttung down consensus");
                                 return;
                             }
@@ -416,23 +437,23 @@ where
                             connection.set_state(ModuleState::Ready);
                             if let Err(e) = apply_result {
                                 warn!(target: Targets::Synchronization.into_str(), "Failed to apply sync from peer {}: {}", from, e);
-                            } else{
+                            } else {
                                 trace!(target: Targets::Synchronization.into_str(), "Applied sync successfully");
                             }
-                        },
+                        }
                         InEvent::ScheduleTx(tx) => {
                             trace!("Scheduling transaction: {:?}", tx);
                             if let Transaction::InitializeStorage { distribution: _ } = &tx {
                                 debug!(target: Targets::StorageInitialization.into_str(), "Scheduling init transaction for inclusion in event");
                             }
                             self.push_tx(tx);
-                        },
+                        }
                         InEvent::CreateStandalone => {
                             debug!("Creating a standalone event");
                             if let Err(e) = self.create_standalone_event() {
                                 warn!("Failed to create standalone event: {}", e);
                             }
-                        },
+                        }
                     }
                 }
                 _ = connection.shutdown.cancelled() => {
