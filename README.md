@@ -6,7 +6,7 @@ Utilizes [our implementation](https://github.com/bragov4ik/rust-hashgraph) of [H
 
 Currently supports only addition, subtraction, and inversion in Galois field of order $2^8$. (Basically only addition, because subtraction is exactly addition, and inversion is equality).
 
-This project was written as Bachelor's degree thesis within Innopolis University in 2022-2023 academic year. Link for the published version will be placed [HERE](https://doi.org/10.13140/RG.2.2.31137.36967) later.
+This project was written as Bachelor's degree thesis within Innopolis University in 2022-2023 academic year. Full text can be found at [https://doi.org/10.13140/RG.2.2.31137.36967](https://doi.org/10.13140/RG.2.2.31137.36967).
 
 Also it was started as 2022 Summer internship at Innopolis University. Schedule and linked reports for the internship can be found [here](https://hackmd.io/H1iKRHrdTiCnZi7QLK0wrw).
 
